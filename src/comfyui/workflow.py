@@ -14,21 +14,30 @@ from src.models.task import WorkflowParams
 class WorkflowManager:
     """Управление и модификация ComfyUI workflow"""
     
-    def __init__(self, template_path: Path):
+    def __init__(self, template_path: Path, ui_workflow_path: Path = None):
         """
         Инициализация workflow manager
         
         Args:
-            template_path: Путь к базовому workflow JSON файлу
+            template_path: Путь к базовому workflow JSON файлу (API формат)
+            ui_workflow_path: Путь к UI workflow (для extra_pnginfo)
         """
         self.template_path = template_path
         self.template = self._load_template()
+        
+        # Загружаем UI workflow для extra_pnginfo (если есть)
+        self.ui_workflow_path = ui_workflow_path
+        self.ui_workflow = None
+        if ui_workflow_path and ui_workflow_path.exists():
+            self.ui_workflow = self._load_ui_workflow()
+            logger.info(f"UI workflow loaded from {ui_workflow_path}")
+        
         logger.info(f"Workflow template loaded from {template_path}")
         logger.debug(f"Template nodes: {list(self.template.keys())}")
     
     def _load_template(self) -> Dict[str, Any]:
         """
-        Загрузка базового workflow шаблона из JSON файла
+        Загрузка базового workflow шаблона из JSON файла (API формат)
         
         Returns:
             Workflow JSON как dict
@@ -49,7 +58,30 @@ class WorkflowManager:
             logger.error(f"Failed to parse workflow template: {e}")
             raise
     
-    def create_workflow(self, params: WorkflowParams) -> Dict[str, Any]:
+    def _load_ui_workflow(self) -> Dict[str, Any]:
+        """
+        Загрузка UI workflow (для extra_pnginfo)
+        
+        Returns:
+            UI workflow JSON как dict
+            
+        Raises:
+            FileNotFoundError: Если файл не найден
+            json.JSONDecodeError: Если JSON невалидный
+        """
+        if not self.ui_workflow_path.exists():
+            raise FileNotFoundError(f"UI workflow not found: {self.ui_workflow_path}")
+        
+        try:
+            with open(self.ui_workflow_path, 'r', encoding='utf-8') as f:
+                ui_workflow = json.load(f)
+            logger.debug(f"UI workflow loaded: {ui_workflow.get('last_node_id', 'unknown')} nodes")
+            return ui_workflow
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse UI workflow: {e}")
+            raise
+    
+    def create_workflow(self, params: WorkflowParams) -> tuple[Dict[str, Any], Dict[str, Any]]:
         """
         Создание workflow с параметрами пользователя
         
@@ -65,7 +97,9 @@ class WorkflowManager:
             params: Параметры для генерации workflow
             
         Returns:
-            Модифицированный workflow JSON (deep copy)
+            Tuple (workflow_api, extra_pnginfo):
+                - workflow_api: API формат workflow для ComfyUI
+                - extra_pnginfo: Metadata с UI workflow (для нод типа WidgetToString)
         """
         logger.info("Creating workflow with user parameters")
         logger.debug(f"Params: image={params.input_image}, prompt='{params.positive_prompt[:50]}...', steps={params.steps}")
@@ -80,8 +114,13 @@ class WorkflowManager:
         self._set_steps(workflow, params.steps)
         self._set_sampling_params(workflow, params)
         
+        # Формируем extra_pnginfo с UI workflow (если есть)
+        extra_pnginfo = {}
+        if self.ui_workflow:
+            extra_pnginfo["workflow"] = self.ui_workflow
+        
         logger.success("✅ Workflow created successfully")
-        return workflow
+        return workflow, extra_pnginfo
     
     def _set_input_image(self, workflow: Dict, image_name: str) -> None:
         """

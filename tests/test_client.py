@@ -66,6 +66,33 @@ async def test_queue_prompt():
 
 
 @pytest.mark.asyncio
+async def test_queue_prompt_with_extra_pnginfo():
+    """Тест постановки workflow в очередь с extra_pnginfo"""
+    client = ComfyUIClient()
+    
+    with patch('aiohttp.ClientSession.post') as mock_post:
+        mock_response = AsyncMock()
+        mock_response.status = 200
+        mock_response.json = AsyncMock(return_value={"prompt_id": "test-456"})
+        mock_response.raise_for_status = MagicMock()
+        mock_post.return_value.__aenter__.return_value = mock_response
+        
+        async with client:
+            workflow = {"test": "workflow"}
+            extra_pnginfo = {"workflow": {"nodes": []}}
+            prompt_id = await client.queue_prompt(workflow, extra_pnginfo)
+        
+        assert prompt_id == "test-456"
+        
+        # Проверяем что extra_pnginfo передался в payload
+        call_kwargs = mock_post.call_args.kwargs
+        assert "json" in call_kwargs
+        payload = call_kwargs["json"]
+        assert "extra_pnginfo" in payload
+        assert payload["extra_pnginfo"] == extra_pnginfo
+
+
+@pytest.mark.asyncio
 async def test_upload_image():
     """Тест загрузки изображения"""
     client = ComfyUIClient()

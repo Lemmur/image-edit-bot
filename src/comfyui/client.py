@@ -151,12 +151,13 @@ class ComfyUIClient:
             logger.error(f"Failed to upload image: {e}")
             raise
     
-    async def queue_prompt(self, workflow: Dict) -> str:
+    async def queue_prompt(self, workflow: Dict, extra_pnginfo: Optional[Dict] = None) -> str:
         """
         Постановка workflow в очередь выполнения
         
         Args:
-            workflow: Модифицированный workflow JSON
+            workflow: Модифицированный workflow JSON (API формат)
+            extra_pnginfo: Дополнительная metadata (включая UI workflow для custom нод)
             
         Returns:
             prompt_id: Уникальный ID задачи
@@ -170,6 +171,11 @@ class ComfyUIClient:
             "prompt": workflow,
             "client_id": self.client_id
         }
+        
+        # Добавляем extra_pnginfo если есть (нужно для нод типа WidgetToString)
+        if extra_pnginfo:
+            payload["extra_pnginfo"] = extra_pnginfo
+            logger.debug(f"Including extra_pnginfo with keys: {list(extra_pnginfo.keys())}")
         
         try:
             async with self.session.post(

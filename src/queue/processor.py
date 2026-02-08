@@ -123,10 +123,10 @@ class TaskProcessor:
             
             # 3. Создание workflow с параметрами
             task.workflow_params.input_image = upload_result["name"]
-            workflow = self.workflow_manager.create_workflow(task.workflow_params)
+            workflow, extra_pnginfo = self.workflow_manager.create_workflow(task.workflow_params)
             
-            # 4. Постановка в очередь ComfyUI
-            prompt_id = await self.comfyui.queue_prompt(workflow)
+            # 4. Постановка в очередь ComfyUI (с extra_pnginfo для custom нод)
+            prompt_id = await self.comfyui.queue_prompt(workflow, extra_pnginfo)
             logger.info(f"Task {task.id[:8]} queued in ComfyUI: {prompt_id}")
             
             # 5. Отслеживание прогресса через WebSocket

@@ -32,7 +32,7 @@ def test_workflow_creation():
         seed=12345
     )
     
-    workflow = manager.create_workflow(params)
+    workflow, extra_pnginfo = manager.create_workflow(params)
     
     # Проверить модификации
     assert workflow["78"]["inputs"]["image"] == "test_image.png"
@@ -41,6 +41,9 @@ def test_workflow_creation():
     assert workflow["115"]["inputs"]["value"] == 10
     assert workflow["121"]["inputs"]["cfg"] == 2.0
     assert workflow["117"]["inputs"]["value"] == 12345
+    
+    # extra_pnginfo должен быть dict (пустой если нет UI workflow)
+    assert isinstance(extra_pnginfo, dict)
 
 
 def test_workflow_random_seed():
@@ -54,7 +57,7 @@ def test_workflow_random_seed():
         seed=0  # Random
     )
     
-    workflow = manager.create_workflow(params)
+    workflow, _ = manager.create_workflow(params)
     seed = workflow["117"]["inputs"]["value"]
     
     assert seed > 0
@@ -89,9 +92,33 @@ def test_workflow_default_values():
         positive_prompt="minimal test"
     )
     
-    workflow = manager.create_workflow(params)
+    workflow, _ = manager.create_workflow(params)
     
     # Проверить значения по умолчанию
     assert workflow["115"]["inputs"]["value"] == 8  # default steps
     assert workflow["121"]["inputs"]["cfg"] == 1.0  # default cfg
     assert "linear/euler" in workflow["120"]["inputs"]["sampler_name"]  # default sampler
+
+
+def test_workflow_with_ui_workflow():
+    """Тест загрузки UI workflow для extra_pnginfo"""
+    workflow_path = Path("workflows/qwen_image_edit.json")
+    ui_workflow_path = Path("Qwen Image Edit Rapid.json")
+    
+    # Если UI workflow не существует, пропускаем тест
+    if not ui_workflow_path.exists():
+        pytest.skip(f"UI workflow not found: {ui_workflow_path}")
+    
+    manager = WorkflowManager(workflow_path, ui_workflow_path)
+    
+    params = WorkflowParams(
+        input_image="test.png",
+        positive_prompt="test with ui workflow"
+    )
+    
+    workflow, extra_pnginfo = manager.create_workflow(params)
+    
+    # Должен быть workflow в extra_pnginfo
+    assert "workflow" in extra_pnginfo
+    assert isinstance(extra_pnginfo["workflow"], dict)
+    assert "nodes" in extra_pnginfo["workflow"]  # UI формат содержит nodes

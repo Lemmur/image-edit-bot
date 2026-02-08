@@ -87,7 +87,8 @@ class Application:
         
         # 7. Workflow manager
         workflow_path = self.config.workflows_dir / self.config.workflow.default_file
-        self.workflow_manager = WorkflowManager(workflow_path)
+        ui_workflow_path = Path("Qwen Image Edit Rapid.json")  # UI формат для extra_pnginfo
+        self.workflow_manager = WorkflowManager(workflow_path, ui_workflow_path)
         logger.info(f"Workflow loaded: {workflow_path}")
         
         # 8. Task queue
