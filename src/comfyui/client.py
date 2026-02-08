@@ -26,19 +26,36 @@ class ComfyUIClient:
         self.ws_url = f"ws://{host}:{port}/ws"
         self.client_id: Optional[str] = None
         self.session: Optional[aiohttp.ClientSession] = None
+    
+    async def connect(self):
+        """
+        Открыть HTTP сессию (для долгоживущих приложений)
+        
+        Используйте для приложений, которые должны поддерживать сессию
+        на протяжении всего жизненного цикла.
+        """
+        if self.session and not self.session.closed:
+            logger.warning("Session already open")
+            return
+            
+        self.session = aiohttp.ClientSession()
+        self.client_id = str(uuid.uuid4())
+        logger.info(f"ComfyUI client connected (client_id={self.client_id})")
+    
+    async def close(self):
+        """Закрыть HTTP сессию"""
+        if self.session and not self.session.closed:
+            await self.session.close()
+            logger.info("ComfyUI client session closed")
         
     async def __aenter__(self):
         """Контекстный менеджер - вход"""
-        self.session = aiohttp.ClientSession()
-        self.client_id = str(uuid.uuid4())
-        logger.debug(f"ComfyUI client initialized with client_id={self.client_id}")
+        await self.connect()
         return self
         
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """Контекстный менеджер - выход"""
-        if self.session:
-            await self.session.close()
-            logger.debug("ComfyUI client session closed")
+        await self.close()
     
     async def check_health(self) -> bool:
         """

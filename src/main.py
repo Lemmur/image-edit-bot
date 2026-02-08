@@ -74,11 +74,14 @@ class Application:
             port=self.config.comfyui_port
         )
         
+        # Открыть сессию для долгоживущего соединения
+        await self.comfyui_client.connect()
+        
         # Проверка доступности ComfyUI с retry
-        async with self.comfyui_client as client:
-            if not await client.wait_for_ready(max_attempts=60, delay=5):
-                logger.error("ComfyUI is not available after 5 minutes!")
-                raise RuntimeError("ComfyUI connection failed")
+        if not await self.comfyui_client.wait_for_ready(max_attempts=60, delay=5):
+            logger.error("ComfyUI is not available after 5 minutes!")
+            await self.comfyui_client.close()
+            raise RuntimeError("ComfyUI connection failed")
         
         logger.success("ComfyUI is ready")
         
@@ -173,8 +176,8 @@ class Application:
         logger.info("Cleanup task stopped")
         
         # 5. Закрыть ComfyUI клиент
-        if self.comfyui_client and self.comfyui_client.session:
-            await self.comfyui_client.session.close()
+        if self.comfyui_client:
+            await self.comfyui_client.close()
         logger.info("ComfyUI client closed")
         
         # 6. Закрыть bot session
