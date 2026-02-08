@@ -172,16 +172,17 @@ class ComfyUIClient:
             "client_id": self.client_id
         }
         
-        # Добавляем extra_pnginfo если есть (нужно для нод типа WidgetToString)
+        # ComfyUI API требует extra_pnginfo внутри extra_data
         if extra_pnginfo and "workflow" in extra_pnginfo:
-            payload["extra_pnginfo"] = extra_pnginfo
+            payload["extra_data"] = {
+                "extra_pnginfo": extra_pnginfo
+            }
             nodes_count = len(extra_pnginfo.get('workflow', {}).get('nodes', []))
-            logger.info(f"✅ Including extra_pnginfo with {nodes_count} nodes in workflow")
+            logger.info(f"✅ Including extra_pnginfo with {nodes_count} nodes in extra_data")
         elif extra_pnginfo:
-            logger.error(f"❌ extra_pnginfo exists but NO 'workflow' key! Keys: {list(extra_pnginfo.keys())}")
-            payload["extra_pnginfo"] = extra_pnginfo
+            logger.warning(f"⚠️ extra_pnginfo exists but NO 'workflow' key! Keys: {list(extra_pnginfo.keys())}")
         else:
-            logger.error("❌ extra_pnginfo is COMPLETELY EMPTY - WidgetToString will FAIL!")
+            logger.warning("⚠️ extra_pnginfo is empty - WidgetToString nodes may fail")
         
         try:
             async with self.session.post(
