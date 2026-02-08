@@ -9,15 +9,17 @@ from loguru import logger
 
 from src.bot.states import ImageEditStates
 from src.bot.keyboards import (
-    create_confirm_keyboard, 
+    create_confirm_keyboard,
     create_settings_keyboard,
     create_sampler_keyboard,
-    create_skip_keyboard
+    create_skip_keyboard,
+    create_user_settings_keyboard
 )
 from src.models.task import Task, WorkflowParams
 from src.queue.task_queue import TaskQueue
 from src.models.config import Config
 from src.storage.file_manager import FileManager
+from src.storage.user_settings import UserSettingsManager
 
 router = Router()
 
@@ -44,6 +46,7 @@ async def cmd_start(message: Message):
         "5. Получи результат!\n\n"
         "📋 <b>Команды:</b>\n"
         "/new — новая задача с настройками\n"
+        "/settings — персональные настройки\n"
         "/status — статус очереди\n"
         "/cancel — отменить задачу\n"
         "/help — справка",
@@ -140,6 +143,28 @@ async def cmd_cancel(message: Message, state: FSMContext):
     )
 
 
+@router.message(Command("settings"))
+async def cmd_settings(message: Message, user_settings_manager: UserSettingsManager):
+    """Команда /settings — настройки пользователя"""
+    logger.info(f"User {message.from_user.id} opened settings")
+    
+    settings = user_settings_manager.get_settings(message.from_user.id)
+    
+    prompt_preview = settings.default_prompt[:50] + "..." if len(settings.default_prompt) > 50 else settings.default_prompt
+    prompt_text = f'"{prompt_preview}"' if settings.default_prompt else "не установлен"
+    
+    auto_text = "✅ Включён" if settings.auto_confirm else "❌ Выключен"
+    
+    await message.answer(
+        "⚙️ <b>Персональные настройки</b>\n\n"
+        f"📝 <b>Промпт по умолчанию:</b> {prompt_text}\n"
+        f"⚡ <b>Автоматический запуск:</b> {auto_text}\n\n"
+        "Используйте кнопки для настройки:",
+        parse_mode="HTML",
+        reply_markup=create_user_settings_keyboard(settings.default_prompt, settings.auto_confirm)
+    )
+
+
 @router.message(Command("skip"))
 async def cmd_skip(message: Message, state: FSMContext, config: Config):
     """Команда /skip — пропустить negative prompt"""
@@ -163,15 +188,18 @@ async def cmd_skip(message: Message, state: FSMContext, config: Config):
 
 
 # =============================================================================
-# Быстрая генерация (фото с подписью без команд)
+# Быстрая генерация (фото без команд)
 # =============================================================================
 
 @router.message(StateFilter(None), F.photo, F.caption)
 async def handle_quick_photo_with_caption(message: Message, state: FSMContext, config: Config,
-                                         file_manager: FileManager, bot: Bot):
+                                         file_manager: FileManager, bot: Bot,
+                                         user_settings_manager: UserSettingsManager,
+                                         task_queue: TaskQueue):
     """
     Быстрая генерация: фото с подписью автоматически запускает процесс.
     Промпт берётся из caption, остальное - дефолтные настройки.
+    Если auto_confirm включён - запускается автоматически.
     """
     photo = message.photo[-1]
     caption = message.caption.strip()
@@ -213,11 +241,88 @@ async def handle_quick_photo_with_caption(message: Message, state: FSMContext, c
             strength=config.workflow.defaults.strength
         )
         
-        # Перейти сразу к подтверждению
-        await state.set_state(ImageEditStates.confirming)
+        # Проверить настройку автоподтверждения
+        auto_confirm = user_settings_manager.is_auto_confirm_enabled(message.from_user.id)
         
-        data = await state.get_data()
-        await _show_confirmation(message, data, config)
+        if auto_confirm:
+            # Автоматический запуск
+            await _auto_start_task(message, state, config, task_queue)
+        else:
+            # Показать подтверждение
+            await state.set_state(ImageEditStates.confirming)
+            data = await state.get_data()
+            await _show_confirmation(message, data, config)
+        
+    except Exception as e:
+        logger.error(f"Failed to download photo in quick mode: {e}")
+        await message.answer("❌ Не удалось загрузить изображение. Попробуйте ещё раз.")
+
+
+@router.message(StateFilter(None), F.photo, ~F.caption)
+async def handle_quick_photo_without_caption(message: Message, state: FSMContext, config: Config,
+                                             file_manager: FileManager, bot: Bot,
+                                             user_settings_manager: UserSettingsManager,
+                                             task_queue: TaskQueue):
+    """
+    Быстрая генерация: фото без подписи использует промпт по умолчанию.
+    Если промпт не установлен - просит его отправить.
+    Если auto_confirm включён - запускается автоматически.
+    """
+    photo = message.photo[-1]
+    
+    # Проверить наличие промпта по умолчанию
+    if not user_settings_manager.has_default_prompt(message.from_user.id):
+        await message.answer(
+            "📝 <b>Промпт по умолчанию не установлен</b>\n\n"
+            "Когда вы отправляете фото без подписи, я использую промпт по умолчанию.\n\n"
+            "Чтобы установить его:\n"
+            "1. Используйте команду /settings\n"
+            "2. Нажмите на кнопку 'Промпт'\n"
+            "3. Отправьте текст промпта\n\n"
+            "💡 Или отправьте фото с подписью - она будет использована как промпт.",
+            parse_mode="HTML"
+        )
+        return
+    
+    default_prompt = user_settings_manager.get_default_prompt(message.from_user.id)
+    
+    logger.info(
+        f"User {message.from_user.id} sent quick photo without caption, "
+        f"using default prompt: {default_prompt[:50]}..."
+    )
+    
+    try:
+        # Скачать файл
+        file_path = await file_manager.download_file(
+            bot=bot,
+            file_id=photo.file_id,
+            user_id=message.from_user.id,
+            extension="jpg"
+        )
+        
+        # Сохранить в состояние с промптом по умолчанию
+        await state.update_data(
+            image_path=str(file_path),
+            positive_prompt=default_prompt,
+            negative_prompt=config.workflow.defaults.negative_prompt,
+            steps=config.workflow.defaults.steps,
+            cfg=config.workflow.defaults.cfg,
+            sampler=config.workflow.defaults.sampler,
+            seed=config.workflow.defaults.seed,
+            strength=config.workflow.defaults.strength
+        )
+        
+        # Проверить настройку автоподтверждения
+        auto_confirm = user_settings_manager.is_auto_confirm_enabled(message.from_user.id)
+        
+        if auto_confirm:
+            # Автоматический запуск
+            await _auto_start_task(message, state, config, task_queue)
+        else:
+            # Показать подтверждение
+            await state.set_state(ImageEditStates.confirming)
+            data = await state.get_data()
+            await _show_confirmation(message, data, config)
         
     except Exception as e:
         logger.error(f"Failed to download photo in quick mode: {e}")
@@ -692,6 +797,112 @@ async def callback_settings_cancel(callback: CallbackQuery, state: FSMContext, c
 
 
 # =============================================================================
+# Callbacks для пользовательских настроек
+# =============================================================================
+
+@router.callback_query(F.data == "user_set_prompt")
+async def callback_user_set_prompt(callback: CallbackQuery, state: FSMContext):
+    """Установить промпт по умолчанию"""
+    await state.set_state(ImageEditStates.setting_default_prompt)
+    
+    await callback.message.edit_text(
+        "📝 <b>Установка промпта по умолчанию</b>\n\n"
+        "Отправьте текст промпта, который будет использоваться "
+        "когда вы отправляете фото без подписи.\n\n"
+        "💡 <i>Например: \"улучши качество фото\" или \"сделай фон размытым\"</i>\n\n"
+        "Используйте /cancel для отмены.",
+        parse_mode="HTML"
+    )
+    
+    await callback.answer()
+
+
+@router.callback_query(F.data == "user_toggle_auto")
+async def callback_user_toggle_auto(callback: CallbackQuery,
+                                    user_settings_manager: UserSettingsManager):
+    """Переключить автоподтверждение"""
+    user_id = callback.from_user.id
+    settings = user_settings_manager.get_settings(user_id)
+    
+    # Переключить значение
+    new_value = not settings.auto_confirm
+    user_settings_manager.update_settings(user_id, auto_confirm=new_value)
+    
+    status = "✅ Включён" if new_value else "❌ Выключен"
+    
+    logger.info(f"User {user_id} toggled auto_confirm to {new_value}")
+    
+    # Обновить клавиатуру
+    updated_settings = user_settings_manager.get_settings(user_id)
+    
+    prompt_preview = updated_settings.default_prompt[:50] + "..." if len(updated_settings.default_prompt) > 50 else updated_settings.default_prompt
+    prompt_text = f'"{prompt_preview}"' if updated_settings.default_prompt else "не установлен"
+    auto_text = "✅ Включён" if updated_settings.auto_confirm else "❌ Выключен"
+    
+    await callback.message.edit_text(
+        "⚙️ <b>Персональные настройки</b>\n\n"
+        f"📝 <b>Промпт по умолчанию:</b> {prompt_text}\n"
+        f"⚡ <b>Автоматический запуск:</b> {auto_text}\n\n"
+        "Используйте кнопки для настройки:",
+        parse_mode="HTML",
+        reply_markup=create_user_settings_keyboard(updated_settings.default_prompt, updated_settings.auto_confirm)
+    )
+    
+    await callback.answer(f"Автозапуск: {status}")
+
+
+@router.callback_query(F.data == "user_settings_help")
+async def callback_user_settings_help(callback: CallbackQuery):
+    """Справка по настройкам"""
+    await callback.answer(
+        "📝 Промпт по умолчанию - используется когда вы отправляете фото без подписи.\n\n"
+        "⚡ Автозапуск - если включён, генерация запускается сразу без подтверждения "
+        "при отправке фото (с подписью или без).",
+        show_alert=True
+    )
+
+
+@router.callback_query(F.data == "user_settings_close")
+async def callback_user_settings_close(callback: CallbackQuery):
+    """Закрыть настройки"""
+    await callback.message.delete()
+    await callback.answer()
+
+
+@router.message(ImageEditStates.setting_default_prompt, F.text)
+async def handle_default_prompt(message: Message, state: FSMContext,
+                                user_settings_manager: UserSettingsManager):
+    """Обработка установки промпта по умолчанию"""
+    prompt = message.text.strip()
+    
+    if len(prompt) < 3:
+        await message.answer("❌ Промпт слишком короткий. Минимум 3 символа.")
+        return
+    
+    if len(prompt) > 500:
+        await message.answer("❌ Промпт слишком длинный. Максимум 500 символов.")
+        return
+    
+    # Сохранить промпт
+    user_settings_manager.update_settings(message.from_user.id, default_prompt=prompt)
+    
+    logger.info(f"User {message.from_user.id} set default prompt: {prompt[:50]}...")
+    
+    # Очистить состояние
+    await state.clear()
+    
+    settings = user_settings_manager.get_settings(message.from_user.id)
+    
+    await message.answer(
+        f"✅ <b>Промпт по умолчанию установлен</b>\n\n"
+        f"📝 <i>\"{prompt}\"</i>\n\n"
+        "Теперь при отправке фото без подписи будет использоваться этот промпт.",
+        parse_mode="HTML",
+        reply_markup=create_user_settings_keyboard(settings.default_prompt, settings.auto_confirm)
+    )
+
+
+# =============================================================================
 # Вспомогательные функции
 # =============================================================================
 
@@ -719,3 +930,71 @@ async def _show_confirmation(message: Message, data: dict, config: Config, edit:
         await message.edit_text(text, parse_mode="HTML", reply_markup=create_confirm_keyboard())
     else:
         await message.answer(text, parse_mode="HTML", reply_markup=create_confirm_keyboard())
+
+
+async def _auto_start_task(message: Message, state: FSMContext, config: Config, task_queue: TaskQueue):
+    """
+    Автоматический запуск задачи без подтверждения
+    
+    Args:
+        message: Сообщение пользователя
+        state: FSM контекст
+        config: Конфигурация
+        task_queue: Очередь задач
+    """
+    data = await state.get_data()
+    
+    # Создать WorkflowParams
+    workflow_params = WorkflowParams(
+        input_image=data['image_path'],
+        positive_prompt=data['positive_prompt'],
+        negative_prompt=data.get('negative_prompt', ''),
+        steps=data.get('steps', config.workflow.defaults.steps),
+        cfg=data.get('cfg', config.workflow.defaults.cfg),
+        sampler=data.get('sampler', config.workflow.defaults.sampler),
+        seed=data.get('seed', config.workflow.defaults.seed),
+        strength=data.get('strength', config.workflow.defaults.strength)
+    )
+    
+    # Валидация
+    try:
+        workflow_params.validate(config.workflow.limits)
+    except ValueError as e:
+        await message.answer(f"❌ Ошибка валидации: {e}")
+        await state.clear()
+        return
+    
+    # Создать задачу
+    task = Task(
+        user_id=message.from_user.id,
+        chat_id=message.chat.id,
+        message_id=message.message_id,
+        image_path=Path(data['image_path']),
+        workflow_params=workflow_params
+    )
+    
+    try:
+        position = await task_queue.add_task(task)
+        
+        logger.info(
+            f"Task {task.id[:8]} auto-started by user {message.from_user.id}, "
+            f"position: {position}"
+        )
+        
+        # Очистить состояние
+        await state.clear()
+        
+        await message.answer(
+            f"⚡ <b>Задача запущена автоматически</b>\n\n"
+            f"🆔 ID: <code>{task.id[:8]}</code>\n"
+            f"📍 Позиция: {position}\n"
+            f"📝 Промпт: {data['positive_prompt'][:50]}...\n\n"
+            f"Ожидайте результат...\n\n"
+            f"💡 <i>Автозапуск можно отключить в /settings</i>",
+            parse_mode="HTML"
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to auto-start task: {e}")
+        await message.answer(f"❌ Ошибка при запуске задачи: {e}")
+        await state.clear()

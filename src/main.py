@@ -22,6 +22,7 @@ from src.comfyui.workflow import WorkflowManager
 from src.queue.task_queue import TaskQueue
 from src.queue.processor import TaskProcessor
 from src.storage.file_manager import FileManager
+from src.storage.user_settings import UserSettingsManager
 
 
 class Application:
@@ -37,6 +38,7 @@ class Application:
         self.task_queue = None
         self.task_processor = None
         self.file_manager = None
+        self.user_settings_manager = None
         self.processor_task = None
         self.cleanup_task = None
         self.shutdown_event = asyncio.Event()
@@ -99,6 +101,10 @@ class Application:
         self.file_manager = FileManager(self.config.data_dir)
         logger.info("File manager initialized")
         
+        # 9.1. User settings manager
+        self.user_settings_manager = UserSettingsManager(self.config.data_dir)
+        logger.info("User settings manager initialized")
+        
         # 10. Task processor
         self.task_processor = TaskProcessor(
             task_queue=self.task_queue,
@@ -114,6 +120,7 @@ class Application:
         self.dp["comfyui_client"] = self.comfyui_client
         self.dp["config"] = self.config
         self.dp["file_manager"] = self.file_manager
+        self.dp["user_settings_manager"] = self.user_settings_manager
         
         logger.success("All components initialized successfully")
         

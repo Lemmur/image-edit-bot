@@ -20,3 +20,6 @@ class ImageEditStates(StatesGroup):
     
     # Подтверждение задачи перед запуском
     confirming = State()
+    
+    # Установка промпта по умолчанию
+    setting_default_prompt = State()

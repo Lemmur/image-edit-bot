@@ -119,3 +119,30 @@ def create_skip_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="⏭ Пропустить", callback_data="skip_negative")]
     ])
+
+
+def create_user_settings_keyboard(default_prompt: str, auto_confirm: bool) -> InlineKeyboardMarkup:
+    """
+    Клавиатура пользовательских настроек
+    
+    Args:
+        default_prompt: Текущий промпт по умолчанию
+        auto_confirm: Состояние автоподтверждения
+        
+    Returns:
+        InlineKeyboardMarkup с настройками пользователя
+    """
+    # Статус промпта
+    prompt_status = "✅ Установлен" if default_prompt else "❌ Не установлен"
+    prompt_text = f"📝 Промпт: {prompt_status}"
+    
+    # Статус автоподтверждения
+    auto_status = "✅ Вкл" if auto_confirm else "❌ Выкл"
+    auto_text = f"⚡ Автозапуск: {auto_status}"
+    
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=prompt_text, callback_data="user_set_prompt")],
+        [InlineKeyboardButton(text=auto_text, callback_data="user_toggle_auto")],
+        [InlineKeyboardButton(text="ℹ️ Справка", callback_data="user_settings_help")],
+        [InlineKeyboardButton(text="◀️ Закрыть", callback_data="user_settings_close")]
+    ])
