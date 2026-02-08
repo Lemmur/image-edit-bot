@@ -140,13 +140,15 @@ class TaskProcessor:
                     f"Шаг {current}/{total}"
                 )
             
-            ws_url = f"ws://{self.comfyui.host}:{self.comfyui.port}/ws?clientId={self.comfyui.client_id}"
+            ws_url = f"ws://{self.comfyui.host}:{self.comfyui.port}/ws"
+            base_url = f"http://{self.comfyui.host}:{self.comfyui.port}"
             result = await track_progress(
                 ws_url=ws_url,
                 client_id=self.comfyui.client_id,
                 prompt_id=prompt_id,
                 callback=progress_callback,
-                timeout=self.timeout
+                timeout=self.timeout,
+                base_url=base_url
             )
             
             # 6. Извлечение результата

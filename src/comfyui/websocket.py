@@ -5,6 +5,7 @@ import json
 import asyncio
 
 import websockets
+import aiohttp
 from loguru import logger
 
 
@@ -13,13 +14,15 @@ async def track_progress(
     client_id: str,
     prompt_id: str,
     callback: Optional[Callable[[int, int], Awaitable[None]]] = None,
-    timeout: int = 300
+    timeout: int = 300,
+    base_url: Optional[str] = None
 ) -> Dict:
     """
-    Отслеживание прогресса выполнения через WebSocket
+    Отслеживание прогресса выполнения через WebSocket с fallback на History API
     
     Подключается к ComfyUI WebSocket и ожидает завершения задачи,
-    вызывая callback при обновлении прогресса.
+    вызывая callback при обновлении прогресса. Если WebSocket не получает
+    событие завершения, проверяет History API каждые 10 секунд.
     
     Args:
         ws_url: WebSocket URL (ws://127.0.0.1:8188/ws)
@@ -27,6 +30,7 @@ async def track_progress(
         prompt_id: ID задачи из queue_prompt()
         callback: Async функция callback(current_step, total_steps) для обновления UI
         timeout: Таймаут в секундах (default 300 = 5 минут)
+        base_url: Base URL для History API (http://127.0.0.1:8188)
     
     Returns:
         Финальный результат выполнения с outputs
@@ -43,9 +47,45 @@ async def track_progress(
     """
     logger.info(f"Starting WebSocket progress tracking for prompt_id={prompt_id}")
     
+    # Извлекаем base_url из ws_url если не передан
+    if not base_url:
+        # ws://127.0.0.1:8188/ws -> http://127.0.0.1:8188
+        base_url = ws_url.replace("ws://", "http://").split("/ws")[0]
+    
     full_ws_url = f"{ws_url}?clientId={client_id}"
     outputs = {}
     current_node = None
+    last_history_check = asyncio.get_event_loop().time()
+    history_check_interval = 10  # Проверяем history каждые 10 секунд
+    
+    async def check_history() -> Optional[Dict]:
+        """Проверка результата через History API"""
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    f"{base_url}/history/{prompt_id}",
+                    timeout=aiohttp.ClientTimeout(total=5)
+                ) as response:
+                    if response.status != 200:
+                        return None
+                    
+                    history = await response.json()
+                    if prompt_id not in history:
+                        return None
+                    
+                    task_history = history[prompt_id]
+                    status = task_history.get("status", {})
+                    
+                    # Проверяем статус выполнения
+                    if status.get("completed", False):
+                        logger.info(f"✅ Task completed (via History API)")
+                        task_outputs = task_history.get("outputs", {})
+                        return task_outputs
+                    
+                    return None
+        except Exception as e:
+            logger.debug(f"History check failed: {e}")
+            return None
     
     try:
         async with asyncio.timeout(timeout):
@@ -54,7 +94,22 @@ async def track_progress(
                 
                 while True:
                     try:
-                        message_str = await ws.recv()
+                        # Ждем сообщение с таймаутом для периодической проверки history
+                        try:
+                            message_str = await asyncio.wait_for(ws.recv(), timeout=5.0)
+                        except asyncio.TimeoutError:
+                            # Периодически проверяем history API
+                            current_time = asyncio.get_event_loop().time()
+                            if current_time - last_history_check >= history_check_interval:
+                                logger.debug("Checking History API (WebSocket no activity)...")
+                                history_outputs = await check_history()
+                                if history_outputs:
+                                    outputs = history_outputs
+                                    logger.success(f"✅ Got result via History API fallback")
+                                    break
+                                last_history_check = current_time
+                            continue
+                        
                         message = json.loads(message_str)
                         msg_type = message.get("type")
                         
@@ -136,9 +191,15 @@ async def track_progress(
                 
                 # Проверяем что получили результат
                 if not outputs:
-                    logger.warning("No outputs received from execution")
-                    # Попробуем получить результат из history
-                    return {"outputs": {}, "status": "completed_no_output"}
+                    logger.warning("No outputs received via WebSocket, checking History API...")
+                    # Финальная проверка через history
+                    history_outputs = await check_history()
+                    if history_outputs:
+                        outputs = history_outputs
+                        logger.success(f"✅ Retrieved outputs via History API: {list(outputs.keys())}")
+                    else:
+                        logger.error("❌ No outputs found in History API either")
+                        return {"outputs": {}, "status": "completed_no_output"}
                 
                 logger.success(f"✅ Progress tracking completed, outputs: {list(outputs.keys())}")
                 return {
@@ -164,7 +225,8 @@ async def track_progress_simple(
     ws_url: str,
     client_id: str,
     prompt_id: str,
-    timeout: int = 300
+    timeout: int = 300,
+    base_url: Optional[str] = None
 ) -> Dict:
     """
     Упрощенная версия track_progress без callback
@@ -174,8 +236,16 @@ async def track_progress_simple(
         client_id: UUID клиента
         prompt_id: ID задачи
         timeout: Таймаут в секундах
+        base_url: Base URL для History API
         
     Returns:
         Финальный результат выполнения
     """
-    return await track_progress(ws_url, client_id, prompt_id, callback=None, timeout=timeout)
+    return await track_progress(
+        ws_url,
+        client_id,
+        prompt_id,
+        callback=None,
+        timeout=timeout,
+        base_url=base_url
+    )
