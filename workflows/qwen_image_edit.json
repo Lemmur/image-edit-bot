@@ -136,7 +136,7 @@
       },
       "lora_1": {
         "on": true,
-        "lora": "qwen_edit\\next-scene_lora-v2-3000.safetensors",
+        "lora": "qwen_edit/next-scene_lora-v2-3000.safetensors",
         "strength": 1
       },
       "➕ Add Lora": "",
