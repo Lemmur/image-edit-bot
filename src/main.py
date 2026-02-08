@@ -12,6 +12,7 @@ from loguru import logger
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
+from aiogram.types import BotCommand
 
 from src.utils.config_loader import load_config
 from src.utils.logger import setup_logger
@@ -59,6 +60,18 @@ class Application:
             token=self.config.telegram_bot_token,
             default=DefaultBotProperties(parse_mode=ParseMode.HTML)
         )
+        
+        # 3.1. Установка меню команд
+        commands = [
+            BotCommand(command="start", description="🚀 Начать работу"),
+            BotCommand(command="new", description="✨ Новая задача"),
+            BotCommand(command="settings", description="⚙️ Настройки"),
+            BotCommand(command="status", description="📊 Статус очереди"),
+            BotCommand(command="cancel", description="❌ Отменить задачу"),
+            BotCommand(command="help", description="ℹ️ Справка")
+        ]
+        await self.bot.set_my_commands(commands)
+        logger.info("Bot commands menu set")
         
         # 4. Dispatcher с роутером
         self.dp = Dispatcher()
