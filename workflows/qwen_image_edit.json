@@ -1,0 +1,158 @@
+{
+  "78": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "input.jpg"
+    }
+  },
+  "118": {
+    "class_type": "CheckpointLoaderSimple",
+    "inputs": {
+      "ckpt_name": "Qwen-Rapid-AIO-NSFW-v11.4.safetensors"
+    }
+  },
+  "103": {
+    "class_type": "Power Lora Loader (rgthree)",
+    "inputs": {
+      "model": ["118", 0],
+      "clip": ["118", 1],
+      "loras": "{\"type\":\"PowerLoraLoaderHeaderWidget\"}",
+      "lora_01": "{\"on\":true,\"lora\":\"qwen_edit\\\\next-scene_lora-v2-3000.safetensors\",\"strength\":1,\"strengthTwo\":null}"
+    }
+  },
+  "104": {
+    "class_type": "WidgetToString",
+    "inputs": {
+      "any_input": ["118", 0],
+      "id": 0,
+      "widget_name": "ckpt_name",
+      "return_all": false,
+      "node_title": "",
+      "allowed_float_decimals": 2
+    }
+  },
+  "93": {
+    "class_type": "ImageScaleToTotalPixels",
+    "inputs": {
+      "image": ["78", 0],
+      "upscale_method": "lanczos",
+      "megapixels": 1.0
+    }
+  },
+  "66": {
+    "class_type": "ModelSamplingAuraFlow",
+    "inputs": {
+      "model": ["103", 0],
+      "shift": 3.0
+    }
+  },
+  "75": {
+    "class_type": "CFGNorm",
+    "inputs": {
+      "model": ["66", 0],
+      "strength": 1.0
+    }
+  },
+  "88": {
+    "class_type": "VAEEncode",
+    "inputs": {
+      "pixels": ["93", 0],
+      "vae": ["118", 2]
+    }
+  },
+  "115": {
+    "class_type": "INTConstant",
+    "inputs": {
+      "value": 8
+    }
+  },
+  "117": {
+    "class_type": "PrimitiveInt",
+    "inputs": {
+      "value": 0
+    }
+  },
+  "119": {
+    "class_type": "TextEncodeQwenImageEditPlus",
+    "inputs": {
+      "clip": ["103", 1],
+      "vae": ["118", 2],
+      "image1": ["78", 0],
+      "prompt": "Make the image better"
+    }
+  },
+  "77": {
+    "class_type": "TextEncodeQwenImageEdit",
+    "inputs": {
+      "clip": ["103", 1],
+      "vae": ["118", 2],
+      "image": ["78", 0],
+      "prompt": "ugly, blurry, distorted, artifacts, bad, wrong, low quality, anime, digital art, semirealistic, cartoon, manga, drawing, fake, unreal"
+    }
+  },
+  "106": {
+    "class_type": "Image Saver Metadata",
+    "inputs": {
+      "modelname": ["104", 0],
+      "positive": "unknown",
+      "negative": "unknown",
+      "width": 512,
+      "height": 512,
+      "seed_value": ["117", 0],
+      "steps": ["115", 0],
+      "cfg": 1.0,
+      "sampler_name": "euler",
+      "scheduler_name": "beta57",
+      "denoise": 1.0,
+      "clip_skip": 0,
+      "additional_hashes": "",
+      "download_civitai_data": true,
+      "easy_remix": true,
+      "custom": ""
+    }
+  },
+  "121": {
+    "class_type": "ClownsharKSampler_Beta",
+    "inputs": {
+      "model": ["75", 0],
+      "positive": ["119", 0],
+      "negative": ["77", 0],
+      "latent_image": ["88", 0],
+      "eta": 0.5,
+      "sampler_name": "linear/euler",
+      "scheduler": "simple",
+      "steps": ["115", 0],
+      "steps_to_run": -1,
+      "denoise": 1.0,
+      "cfg": 1.0,
+      "seed": ["117", 0],
+      "sampler_mode": "standard",
+      "bongmath": true
+    }
+  },
+  "8": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": ["121", 1],
+      "vae": ["118", 2]
+    }
+  },
+  "102": {
+    "class_type": "Image Saver Simple",
+    "inputs": {
+      "images": ["8", 0],
+      "metadata": ["106", 0],
+      "filename": "%time_%basemodelname_%seed",
+      "path": "qwen_edit/%date",
+      "extension": "webp",
+      "lossless_webp": false,
+      "quality_jpeg_or_webp": 100,
+      "optimize_png": false,
+      "embed_workflow": true,
+      "save_workflow_as_json": false,
+      "counter": 0,
+      "time_format": "%Y-%m-%d-%H%M%S",
+      "show_preview": true
+    }
+  }
+}
