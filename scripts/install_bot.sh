@@ -2,8 +2,16 @@
 set -euo pipefail
 
 BOT_DIR="/opt/image-edit-bot"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(dirname "${SCRIPT_DIR}")"
+
+# Определение директории скрипта (с поддержкой pipe установки)
+if [ -n "${BASH_SOURCE[0]:-}" ]; then
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    PROJECT_ROOT="$(dirname "${SCRIPT_DIR}")"
+else
+    # Fallback для одностроковой установки (curl | bash)
+    SCRIPT_DIR="$(pwd)"
+    PROJECT_ROOT="$(pwd)"
+fi
 
 echo "Установка Telegram бота..."
 

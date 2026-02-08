@@ -56,9 +56,6 @@ if ! command -v nvidia-smi &> /dev/null; then
     fi
 fi
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(dirname "${SCRIPT_DIR}")"
-
 echo -e "${GREEN}📋 План установки:${NC}"
 echo "   1. Установка системных зависимостей"
 echo "   2. Создание пользователя comfyui"
