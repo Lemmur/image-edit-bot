@@ -124,8 +124,13 @@ class ComfyUIClient:
         
         # Multipart form data
         data = aiohttp.FormData()
-        data.add_field('image', 
-                      open(image_path, 'rb'),
+        
+        # Открываем файл с контекстным менеджером для предотвращения утечки дескрипторов
+        with open(image_path, 'rb') as image_file:
+            image_content = image_file.read()
+        
+        data.add_field('image',
+                      image_content,
                       filename=image_path.name,
                       content_type='image/jpeg')
         

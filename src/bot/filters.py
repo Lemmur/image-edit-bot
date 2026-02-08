@@ -1,6 +1,6 @@
 """Фильтры для Telegram бота"""
 
-from typing import Union, List
+from typing import Union, List, Dict
 from aiogram.filters import BaseFilter
 from aiogram.types import Message, CallbackQuery
 from loguru import logger
