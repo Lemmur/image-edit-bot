@@ -116,6 +116,12 @@ else
     if [ -d "${BOT_DIR}" ]; then
         rm -rf "${BOT_DIR}"
     fi
+    
+    # Создаем директорию от root
+    mkdir -p "${BOT_DIR}"
+    # Передаем владение пользователю comfyui
+    chown comfyui:comfyui "${BOT_DIR}"
+    # Теперь клонируем от имени comfyui
     sudo -u comfyui git clone "${GIT_REPO}" "${BOT_DIR}"
     cd "${BOT_DIR}"
 fi
