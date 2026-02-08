@@ -28,9 +28,15 @@ class WorkflowManager:
         # Загружаем UI workflow для extra_pnginfo (если есть)
         self.ui_workflow_path = ui_workflow_path
         self.ui_workflow = None
-        if ui_workflow_path and ui_workflow_path.exists():
-            self.ui_workflow = self._load_ui_workflow()
-            logger.info(f"UI workflow loaded from {ui_workflow_path}")
+        if ui_workflow_path:
+            if ui_workflow_path.exists():
+                self.ui_workflow = self._load_ui_workflow()
+                logger.success(f"✅ UI workflow loaded from {ui_workflow_path}")
+            else:
+                logger.warning(f"⚠️ UI workflow file not found: {ui_workflow_path}")
+                logger.warning("extra_pnginfo will be empty - may cause issues with WidgetToString nodes")
+        else:
+            logger.warning("⚠️ No UI workflow path provided - extra_pnginfo will be empty")
         
         logger.info(f"Workflow template loaded from {template_path}")
         logger.debug(f"Template nodes: {list(self.template.keys())}")
@@ -118,8 +124,12 @@ class WorkflowManager:
         extra_pnginfo = {}
         if self.ui_workflow:
             extra_pnginfo["workflow"] = self.ui_workflow
+            logger.debug("✅ extra_pnginfo includes UI workflow")
+        else:
+            logger.warning("⚠️ extra_pnginfo is empty - UI workflow not loaded!")
         
         logger.success("✅ Workflow created successfully")
+        logger.debug(f"Returning: workflow={len(workflow)} nodes, extra_pnginfo={'with workflow' if self.ui_workflow else 'EMPTY'}")
         return workflow, extra_pnginfo
     
     def _set_input_image(self, workflow: Dict, image_name: str) -> None:

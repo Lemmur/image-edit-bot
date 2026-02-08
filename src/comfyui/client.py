@@ -175,7 +175,11 @@ class ComfyUIClient:
         # Добавляем extra_pnginfo если есть (нужно для нод типа WidgetToString)
         if extra_pnginfo:
             payload["extra_pnginfo"] = extra_pnginfo
-            logger.debug(f"Including extra_pnginfo with keys: {list(extra_pnginfo.keys())}")
+            logger.info(f"✅ Including extra_pnginfo with keys: {list(extra_pnginfo.keys())}")
+            if "workflow" in extra_pnginfo:
+                logger.debug(f"extra_pnginfo['workflow'] contains {len(extra_pnginfo.get('workflow', {}).get('nodes', []))} nodes")
+        else:
+            logger.warning("⚠️ extra_pnginfo is EMPTY - this may cause WidgetToString errors!")
         
         try:
             async with self.session.post(
