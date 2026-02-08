@@ -606,6 +606,17 @@ async def callback_confirm(callback: CallbackQuery, state: FSMContext,
     )
     
     try:
+        # Обновить сообщение подтверждения
+        await callback.message.edit_text(
+            f"✅ <b>Задача добавлена в очередь</b>\n\n"
+            f"🆔 ID: <code>{task.id[:8]}</code>\n"
+            f"⏳ Подготовка...",
+            parse_mode="HTML"
+        )
+        
+        # Обновить task с правильным message_id для отображения прогресса
+        task.message_id = callback.message.message_id
+        
         position = await task_queue.add_task(task)
         
         logger.info(
@@ -616,11 +627,12 @@ async def callback_confirm(callback: CallbackQuery, state: FSMContext,
         # Очистить состояние
         await state.clear()
         
+        # Обновить сообщение с позицией в очереди
         await callback.message.edit_text(
             f"✅ <b>Задача добавлена в очередь</b>\n\n"
             f"🆔 ID: <code>{task.id[:8]}</code>\n"
             f"📍 Позиция: {position}\n\n"
-            f"Ожидайте результат...",
+            f"⏳ Ожидайте результат...",
             parse_mode="HTML"
         )
         
@@ -1275,6 +1287,19 @@ async def _auto_start_task(message: Message, state: FSMContext, config: Config, 
     )
     
     try:
+        # Отправить сообщение о запуске и сохранить его message_id для прогресса
+        status_message = await message.answer(
+            f"⚡ <b>Задача запущена автоматически</b>\n\n"
+            f"🆔 ID: <code>{task.id[:8]}</code>\n"
+            f"📝 Промпт: {data['positive_prompt'][:50]}...\n\n"
+            f"⏳ Подготовка...\n\n"
+            f"💡 <i>Автозапуск можно отключить в /settings</i>",
+            parse_mode="HTML"
+        )
+        
+        # Обновить task с правильным message_id для отображения прогресса
+        task.message_id = status_message.message_id
+        
         position = await task_queue.add_task(task)
         
         logger.info(
@@ -1285,12 +1310,13 @@ async def _auto_start_task(message: Message, state: FSMContext, config: Config, 
         # Очистить состояние
         await state.clear()
         
-        await message.answer(
+        # Обновить сообщение с позицией в очереди
+        await status_message.edit_text(
             f"⚡ <b>Задача запущена автоматически</b>\n\n"
             f"🆔 ID: <code>{task.id[:8]}</code>\n"
             f"📍 Позиция: {position}\n"
             f"📝 Промпт: {data['positive_prompt'][:50]}...\n\n"
-            f"Ожидайте результат...\n\n"
+            f"⏳ Ожидайте результат...\n\n"
             f"💡 <i>Автозапуск можно отключить в /settings</i>",
             parse_mode="HTML"
         )
