@@ -34,14 +34,16 @@ async def cmd_start(message: Message):
     await message.answer(
         "👋 <b>Привет!</b>\n\n"
         "Я бот для редактирования изображений с помощью AI.\n\n"
-        "📝 <b>Как использовать:</b>\n"
-        "1. Отправь команду /new чтобы начать\n"
+        "⚡ <b>Быстрый старт:</b>\n"
+        "Отправь фото с подписью — генерация запустится автоматически!\n\n"
+        "📝 <b>Полный процесс:</b>\n"
+        "1. Отправь команду /new\n"
         "2. Загрузи изображение\n"
         "3. Опиши что нужно изменить\n"
         "4. Настрой параметры (опционально)\n"
         "5. Получи результат!\n\n"
         "📋 <b>Команды:</b>\n"
-        "/new — начать новую задачу\n"
+        "/new — новая задача с настройками\n"
         "/status — статус очереди\n"
         "/cancel — отменить задачу\n"
         "/help — справка",
@@ -56,7 +58,10 @@ async def cmd_help(message: Message):
     
     await message.answer(
         "📖 <b>Справка</b>\n\n"
-        "<b>Процесс редактирования:</b>\n"
+        "⚡ <b>Быстрая генерация:</b>\n"
+        "Отправьте фото с подписью — промпт из подписи, "
+        "остальное по умолчанию. Подтвердите кнопкой!\n\n"
+        "<b>Полный процесс:</b>\n"
         "1. /new — начать новую задачу\n"
         "2. Отправьте изображение (фото или файл)\n"
         "3. Опишите желаемые изменения\n"
@@ -158,11 +163,73 @@ async def cmd_skip(message: Message, state: FSMContext, config: Config):
 
 
 # =============================================================================
-# Обработка изображений
+# Быстрая генерация (фото с подписью без команд)
+# =============================================================================
+
+@router.message(StateFilter(None), F.photo, F.caption)
+async def handle_quick_photo_with_caption(message: Message, state: FSMContext, config: Config,
+                                         file_manager: FileManager, bot: Bot):
+    """
+    Быстрая генерация: фото с подписью автоматически запускает процесс.
+    Промпт берётся из caption, остальное - дефолтные настройки.
+    """
+    photo = message.photo[-1]
+    caption = message.caption.strip()
+    
+    # Валидация промпта
+    if len(caption) < 3:
+        await message.answer(
+            "❌ Подпись слишком короткая для использования как промпт.\n\n"
+            "💡 Используйте /new для полного процесса редактирования."
+        )
+        return
+    
+    if len(caption) > 1000:
+        await message.answer("❌ Подпись слишком длинная. Максимум 1000 символов.")
+        return
+    
+    logger.info(
+        f"User {message.from_user.id} sent quick photo with caption: {caption[:50]}..."
+    )
+    
+    try:
+        # Скачать файл
+        file_path = await file_manager.download_file(
+            bot=bot,
+            file_id=photo.file_id,
+            user_id=message.from_user.id,
+            extension="jpg"
+        )
+        
+        # Сохранить в состояние со всеми дефолтными параметрами
+        await state.update_data(
+            image_path=str(file_path),
+            positive_prompt=caption,
+            negative_prompt=config.workflow.defaults.negative_prompt,
+            steps=config.workflow.defaults.steps,
+            cfg=config.workflow.defaults.cfg,
+            sampler=config.workflow.defaults.sampler,
+            seed=config.workflow.defaults.seed,
+            strength=config.workflow.defaults.strength
+        )
+        
+        # Перейти сразу к подтверждению
+        await state.set_state(ImageEditStates.confirming)
+        
+        data = await state.get_data()
+        await _show_confirmation(message, data, config)
+        
+    except Exception as e:
+        logger.error(f"Failed to download photo in quick mode: {e}")
+        await message.answer("❌ Не удалось загрузить изображение. Попробуйте ещё раз.")
+
+
+# =============================================================================
+# Обработка изображений (в рамках FSM)
 # =============================================================================
 
 @router.message(ImageEditStates.waiting_for_image, F.photo)
-async def handle_photo(message: Message, state: FSMContext, config: Config, 
+async def handle_photo(message: Message, state: FSMContext, config: Config,
                        file_manager: FileManager, bot: Bot):
     """Обработка фото (сжимается Telegram до 1280px)"""
     photo = message.photo[-1]  # Наилучшее качество
