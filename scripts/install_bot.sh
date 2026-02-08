@@ -22,15 +22,17 @@ cd "${BOT_DIR}"
 # Создание venv
 if [ ! -d "venv" ]; then
     echo "Создание Python venv..."
-    python3 -m venv venv
+    sudo -u comfyui python3 -m venv venv
 fi
 
-source venv/bin/activate
-
-# Установка зависимостей
+# Активация venv от имени пользователя comfyui
 echo "Установка Python зависимостей..."
-pip install --upgrade pip
-pip install -r requirements.txt
+sudo -u comfyui bash << 'EOF'
+source venv/bin/activate
+pip install --upgrade pip -q
+pip install -r requirements.txt -q
+deactivate
+EOF
 
 # Создание рабочих директорий
 mkdir -p data/{input,output,temp}
