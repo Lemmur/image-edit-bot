@@ -16,7 +16,7 @@ Group=comfyui
 WorkingDirectory=/opt/ComfyUI
 
 ExecStart=/opt/ComfyUI/venv/bin/python main.py \
-    --listen 127.0.0.1 \
+    --listen 0.0.0.0 \
     --port 8188 \
     --disable-auto-launch
 
