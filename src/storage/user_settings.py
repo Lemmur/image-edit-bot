@@ -14,6 +14,11 @@ class UserSettings:
     default_prompt: str = ""
     auto_confirm: bool = False  # Автоматический запуск без подтверждения
     
+    # Параметры генерации по умолчанию (None = использовать из config.yaml)
+    default_steps: Optional[int] = None
+    default_cfg: Optional[float] = None
+    default_seed: Optional[int] = None
+    
     def to_dict(self) -> Dict[str, Any]:
         """Преобразовать в словарь"""
         return asdict(self)

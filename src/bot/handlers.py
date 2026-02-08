@@ -13,7 +13,8 @@ from src.bot.keyboards import (
     create_settings_keyboard,
     create_sampler_keyboard,
     create_skip_keyboard,
-    create_user_settings_keyboard
+    create_user_settings_keyboard,
+    create_user_gen_params_keyboard
 )
 from src.models.task import Task, WorkflowParams
 from src.queue.task_queue import TaskQueue
@@ -37,7 +38,8 @@ async def cmd_start(message: Message):
         "👋 <b>Привет!</b>\n\n"
         "Я бот для редактирования изображений с помощью AI.\n\n"
         "⚡ <b>Быстрый старт:</b>\n"
-        "Отправь фото с подписью — генерация запустится автоматически!\n\n"
+        "Отправь фото с подписью — генерация запустится!\n"
+        "Отправь фото без подписи — используется промпт по умолчанию.\n\n"
         "📝 <b>Полный процесс:</b>\n"
         "1. Отправь команду /new\n"
         "2. Загрузи изображение\n"
@@ -49,7 +51,9 @@ async def cmd_start(message: Message):
         "/settings — персональные настройки\n"
         "/status — статус очереди\n"
         "/cancel — отменить задачу\n"
-        "/help — справка",
+        "/help — справка\n\n"
+        "💡 <i>В /settings можно настроить промпт по умолчанию, "
+        "автозапуск и параметры генерации</i>",
         parse_mode="HTML"
     )
 
@@ -62,19 +66,22 @@ async def cmd_help(message: Message):
     await message.answer(
         "📖 <b>Справка</b>\n\n"
         "⚡ <b>Быстрая генерация:</b>\n"
-        "Отправьте фото с подписью — промпт из подписи, "
-        "остальное по умолчанию. Подтвердите кнопкой!\n\n"
+        "• Фото с подписью → промпт из подписи\n"
+        "• Фото без подписи → промпт по умолчанию (настраивается в /settings)\n\n"
         "<b>Полный процесс:</b>\n"
         "1. /new — начать новую задачу\n"
         "2. Отправьте изображение (фото или файл)\n"
         "3. Опишите желаемые изменения\n"
         "4. Опционально: negative prompt или /skip\n"
         "5. Настройте параметры и подтвердите\n\n"
+        "⚙️ <b>Персональные настройки (/settings):</b>\n"
+        "• <b>Промпт по умолчанию</b> — для фото без подписи\n"
+        "• <b>Автозапуск</b> — убрать подтверждение\n"
+        "• <b>Параметры генерации</b> — ваши Steps, CFG, Seed\n\n"
         "<b>Параметры генерации:</b>\n"
         "• <b>Steps</b> — количество шагов (больше = качественнее, но дольше)\n"
         "• <b>CFG</b> — сила следования промпту\n"
-        "• <b>Seed</b> — фиксированный seed для воспроизводимости\n"
-        "• <b>Sampler</b> — алгоритм семплирования\n\n"
+        "• <b>Seed</b> — фиксированный seed для воспроизводимости\n\n"
         "<b>Форматы изображений:</b>\n"
         "• JPG, PNG, WEBP\n"
         "• Максимум 10 МБ\n"
@@ -155,13 +162,31 @@ async def cmd_settings(message: Message, user_settings_manager: UserSettingsMana
     
     auto_text = "✅ Включён" if settings.auto_confirm else "❌ Выключен"
     
+    # Параметры генерации
+    params_text = []
+    if settings.default_steps is not None:
+        params_text.append(f"Steps: {settings.default_steps}")
+    if settings.default_cfg is not None:
+        params_text.append(f"CFG: {settings.default_cfg:.1f}")
+    if settings.default_seed is not None:
+        params_text.append(f"Seed: {settings.default_seed}")
+    
+    params_display = ", ".join(params_text) if params_text else "используются из config.yaml"
+    
     await message.answer(
         "⚙️ <b>Персональные настройки</b>\n\n"
         f"📝 <b>Промпт по умолчанию:</b> {prompt_text}\n"
-        f"⚡ <b>Автоматический запуск:</b> {auto_text}\n\n"
+        f"⚡ <b>Автоматический запуск:</b> {auto_text}\n"
+        f"⚙️ <b>Параметры генерации:</b> {params_display}\n\n"
         "Используйте кнопки для настройки:",
         parse_mode="HTML",
-        reply_markup=create_user_settings_keyboard(settings.default_prompt, settings.auto_confirm)
+        reply_markup=create_user_settings_keyboard(
+            settings.default_prompt,
+            settings.auto_confirm,
+            settings.default_steps,
+            settings.default_cfg,
+            settings.default_seed
+        )
     )
 
 
@@ -229,15 +254,18 @@ async def handle_quick_photo_with_caption(message: Message, state: FSMContext, c
             extension="jpg"
         )
         
-        # Сохранить в состояние со всеми дефолтными параметрами
+        # Получить пользовательские настройки
+        settings = user_settings_manager.get_settings(message.from_user.id)
+        
+        # Сохранить в состояние с учетом пользовательских параметров
         await state.update_data(
             image_path=str(file_path),
             positive_prompt=caption,
             negative_prompt=config.workflow.defaults.negative_prompt,
-            steps=config.workflow.defaults.steps,
-            cfg=config.workflow.defaults.cfg,
+            steps=settings.default_steps if settings.default_steps is not None else config.workflow.defaults.steps,
+            cfg=settings.default_cfg if settings.default_cfg is not None else config.workflow.defaults.cfg,
             sampler=config.workflow.defaults.sampler,
-            seed=config.workflow.defaults.seed,
+            seed=settings.default_seed if settings.default_seed is not None else config.workflow.defaults.seed,
             strength=config.workflow.defaults.strength
         )
         
@@ -300,15 +328,18 @@ async def handle_quick_photo_without_caption(message: Message, state: FSMContext
             extension="jpg"
         )
         
-        # Сохранить в состояние с промптом по умолчанию
+        # Получить пользовательские настройки
+        settings = user_settings_manager.get_settings(message.from_user.id)
+        
+        # Сохранить в состояние с промптом по умолчанию и пользовательскими параметрами
         await state.update_data(
             image_path=str(file_path),
             positive_prompt=default_prompt,
             negative_prompt=config.workflow.defaults.negative_prompt,
-            steps=config.workflow.defaults.steps,
-            cfg=config.workflow.defaults.cfg,
+            steps=settings.default_steps if settings.default_steps is not None else config.workflow.defaults.steps,
+            cfg=settings.default_cfg if settings.default_cfg is not None else config.workflow.defaults.cfg,
             sampler=config.workflow.defaults.sampler,
-            seed=config.workflow.defaults.seed,
+            seed=settings.default_seed if settings.default_seed is not None else config.workflow.defaults.seed,
             strength=config.workflow.defaults.strength
         )
         
@@ -335,7 +366,8 @@ async def handle_quick_photo_without_caption(message: Message, state: FSMContext
 
 @router.message(ImageEditStates.waiting_for_image, F.photo)
 async def handle_photo(message: Message, state: FSMContext, config: Config,
-                       file_manager: FileManager, bot: Bot):
+                       file_manager: FileManager, bot: Bot,
+                       user_settings_manager: UserSettingsManager):
     """Обработка фото (сжимается Telegram до 1280px)"""
     photo = message.photo[-1]  # Наилучшее качество
     
@@ -350,13 +382,16 @@ async def handle_photo(message: Message, state: FSMContext, config: Config,
             extension="jpg"
         )
         
-        # Сохранить в состояние
+        # Получить пользовательские настройки
+        settings = user_settings_manager.get_settings(message.from_user.id)
+        
+        # Сохранить в состояние с учетом пользовательских параметров
         await state.update_data(
             image_path=str(file_path),
-            steps=config.workflow.defaults.steps,
-            cfg=config.workflow.defaults.cfg,
+            steps=settings.default_steps if settings.default_steps is not None else config.workflow.defaults.steps,
+            cfg=settings.default_cfg if settings.default_cfg is not None else config.workflow.defaults.cfg,
             sampler=config.workflow.defaults.sampler,
-            seed=config.workflow.defaults.seed,
+            seed=settings.default_seed if settings.default_seed is not None else config.workflow.defaults.seed,
             strength=config.workflow.defaults.strength
         )
         
@@ -377,7 +412,8 @@ async def handle_photo(message: Message, state: FSMContext, config: Config,
 
 @router.message(ImageEditStates.waiting_for_image, F.document)
 async def handle_document(message: Message, state: FSMContext, config: Config,
-                         file_manager: FileManager, bot: Bot):
+                         file_manager: FileManager, bot: Bot,
+                         user_settings_manager: UserSettingsManager):
     """Обработка документа (оригинальное качество)"""
     document = message.document
     
@@ -420,13 +456,16 @@ async def handle_document(message: Message, state: FSMContext, config: Config,
             extension=extension
         )
         
-        # Сохранить в состояние
+        # Получить пользовательские настройки
+        settings = user_settings_manager.get_settings(message.from_user.id)
+        
+        # Сохранить в состояние с учетом пользовательских параметров
         await state.update_data(
             image_path=str(file_path),
-            steps=config.workflow.defaults.steps,
-            cfg=config.workflow.defaults.cfg,
+            steps=settings.default_steps if settings.default_steps is not None else config.workflow.defaults.steps,
+            cfg=settings.default_cfg if settings.default_cfg is not None else config.workflow.defaults.cfg,
             sampler=config.workflow.defaults.sampler,
-            seed=config.workflow.defaults.seed,
+            seed=settings.default_seed if settings.default_seed is not None else config.workflow.defaults.seed,
             strength=config.workflow.defaults.strength
         )
         
@@ -839,16 +878,169 @@ async def callback_user_toggle_auto(callback: CallbackQuery,
     prompt_text = f'"{prompt_preview}"' if updated_settings.default_prompt else "не установлен"
     auto_text = "✅ Включён" if updated_settings.auto_confirm else "❌ Выключен"
     
+    # Параметры генерации
+    params_text = []
+    if updated_settings.default_steps is not None:
+        params_text.append(f"Steps: {updated_settings.default_steps}")
+    if updated_settings.default_cfg is not None:
+        params_text.append(f"CFG: {updated_settings.default_cfg:.1f}")
+    if updated_settings.default_seed is not None:
+        params_text.append(f"Seed: {updated_settings.default_seed}")
+    
+    params_display = ", ".join(params_text) if params_text else "используются из config.yaml"
+    
     await callback.message.edit_text(
         "⚙️ <b>Персональные настройки</b>\n\n"
         f"📝 <b>Промпт по умолчанию:</b> {prompt_text}\n"
-        f"⚡ <b>Автоматический запуск:</b> {auto_text}\n\n"
+        f"⚡ <b>Автоматический запуск:</b> {auto_text}\n"
+        f"⚙️ <b>Параметры генерации:</b> {params_display}\n\n"
         "Используйте кнопки для настройки:",
         parse_mode="HTML",
-        reply_markup=create_user_settings_keyboard(updated_settings.default_prompt, updated_settings.auto_confirm)
+        reply_markup=create_user_settings_keyboard(
+            updated_settings.default_prompt,
+            updated_settings.auto_confirm,
+            updated_settings.default_steps,
+            updated_settings.default_cfg,
+            updated_settings.default_seed
+        )
     )
     
     await callback.answer(f"Автозапуск: {status}")
+
+
+@router.callback_query(F.data == "user_gen_params")
+async def callback_user_gen_params(callback: CallbackQuery, user_settings_manager: UserSettingsManager):
+    """Открыть настройки параметров генерации"""
+    settings = user_settings_manager.get_settings(callback.from_user.id)
+    
+    await callback.message.edit_text(
+        "⚙️ <b>Параметры генерации по умолчанию</b>\n\n"
+        "Эти параметры будут использоваться при быстрой генерации.\n"
+        "Если параметр не установлен, используется значение из config.yaml.\n\n"
+        "Нажмите на параметр чтобы изменить его:",
+        parse_mode="HTML",
+        reply_markup=create_user_gen_params_keyboard(
+            settings.default_steps,
+            settings.default_cfg,
+            settings.default_seed
+        )
+    )
+    
+    await callback.answer()
+
+
+@router.callback_query(F.data == "user_param_steps")
+async def callback_user_param_steps(callback: CallbackQuery, state: FSMContext):
+    """Установить Steps по умолчанию"""
+    await state.set_state(ImageEditStates.setting_default_steps)
+    
+    await callback.message.edit_text(
+        "🔢 <b>Установка Steps по умолчанию</b>\n\n"
+        "Отправьте число от 1 до 50.\n\n"
+        "💡 <i>Чем больше steps, тем качественнее результат, но дольше генерация</i>\n\n"
+        "Используйте /cancel для отмены.",
+        parse_mode="HTML"
+    )
+    
+    await callback.answer()
+
+
+@router.callback_query(F.data == "user_param_cfg")
+async def callback_user_param_cfg(callback: CallbackQuery, state: FSMContext):
+    """Установить CFG по умолчанию"""
+    await state.set_state(ImageEditStates.setting_default_cfg)
+    
+    await callback.message.edit_text(
+        "⚡ <b>Установка CFG по умолчанию</b>\n\n"
+        "Отправьте число от 0.1 до 20.0.\n\n"
+        "💡 <i>CFG определяет насколько точно следовать промпту</i>\n\n"
+        "Используйте /cancel для отмены.",
+        parse_mode="HTML"
+    )
+    
+    await callback.answer()
+
+
+@router.callback_query(F.data == "user_param_seed")
+async def callback_user_param_seed(callback: CallbackQuery, state: FSMContext):
+    """Установить Seed по умолчанию"""
+    await state.set_state(ImageEditStates.setting_default_seed)
+    
+    await callback.message.edit_text(
+        "🎲 <b>Установка Seed по умолчанию</b>\n\n"
+        "Отправьте число (seed для генерации).\n"
+        "Отправьте 0 или 'random' для случайного seed.\n\n"
+        "💡 <i>Одинаковый seed даёт воспроизводимые результаты</i>\n\n"
+        "Используйте /cancel для отмены.",
+        parse_mode="HTML"
+    )
+    
+    await callback.answer()
+
+
+@router.callback_query(F.data == "user_param_reset")
+async def callback_user_param_reset(callback: CallbackQuery, user_settings_manager: UserSettingsManager):
+    """Сбросить все параметры генерации"""
+    user_id = callback.from_user.id
+    
+    user_settings_manager.update_settings(
+        user_id,
+        default_steps=None,
+        default_cfg=None,
+        default_seed=None
+    )
+    
+    logger.info(f"User {user_id} reset all generation params")
+    
+    await callback.message.edit_text(
+        "⚙️ <b>Параметры генерации по умолчанию</b>\n\n"
+        "Эти параметры будут использоваться при быстрой генерации.\n"
+        "Если параметр не установлен, используется значение из config.yaml.\n\n"
+        "Нажмите на параметр чтобы изменить его:",
+        parse_mode="HTML",
+        reply_markup=create_user_gen_params_keyboard(None, None, None)
+    )
+    
+    await callback.answer("✅ Все параметры сброшены")
+
+
+@router.callback_query(F.data == "user_param_back")
+async def callback_user_param_back(callback: CallbackQuery, user_settings_manager: UserSettingsManager):
+    """Вернуться к главному меню настроек"""
+    settings = user_settings_manager.get_settings(callback.from_user.id)
+    
+    prompt_preview = settings.default_prompt[:50] + "..." if len(settings.default_prompt) > 50 else settings.default_prompt
+    prompt_text = f'"{prompt_preview}"' if settings.default_prompt else "не установлен"
+    auto_text = "✅ Включён" if settings.auto_confirm else "❌ Выключен"
+    
+    # Параметры генерации
+    params_text = []
+    if settings.default_steps is not None:
+        params_text.append(f"Steps: {settings.default_steps}")
+    if settings.default_cfg is not None:
+        params_text.append(f"CFG: {settings.default_cfg:.1f}")
+    if settings.default_seed is not None:
+        params_text.append(f"Seed: {settings.default_seed}")
+    
+    params_display = ", ".join(params_text) if params_text else "используются из config.yaml"
+    
+    await callback.message.edit_text(
+        "⚙️ <b>Персональные настройки</b>\n\n"
+        f"📝 <b>Промпт по умолчанию:</b> {prompt_text}\n"
+        f"⚡ <b>Автоматический запуск:</b> {auto_text}\n"
+        f"⚙️ <b>Параметры генерации:</b> {params_display}\n\n"
+        "Используйте кнопки для настройки:",
+        parse_mode="HTML",
+        reply_markup=create_user_settings_keyboard(
+            settings.default_prompt,
+            settings.auto_confirm,
+            settings.default_steps,
+            settings.default_cfg,
+            settings.default_seed
+        )
+    )
+    
+    await callback.answer()
 
 
 @router.callback_query(F.data == "user_settings_help")
@@ -856,8 +1048,8 @@ async def callback_user_settings_help(callback: CallbackQuery):
     """Справка по настройкам"""
     await callback.answer(
         "📝 Промпт по умолчанию - используется когда вы отправляете фото без подписи.\n\n"
-        "⚡ Автозапуск - если включён, генерация запускается сразу без подтверждения "
-        "при отправке фото (с подписью или без).",
+        "⚡ Автозапуск - если включён, генерация запускается сразу без подтверждения.\n\n"
+        "⚙️ Параметры генерации - ваши Steps, CFG и Seed по умолчанию.",
         show_alert=True
     )
 
@@ -898,8 +1090,117 @@ async def handle_default_prompt(message: Message, state: FSMContext,
         f"📝 <i>\"{prompt}\"</i>\n\n"
         "Теперь при отправке фото без подписи будет использоваться этот промпт.",
         parse_mode="HTML",
-        reply_markup=create_user_settings_keyboard(settings.default_prompt, settings.auto_confirm)
+        reply_markup=create_user_settings_keyboard(
+            settings.default_prompt,
+            settings.auto_confirm,
+            settings.default_steps,
+            settings.default_cfg,
+            settings.default_seed
+        )
     )
+
+
+@router.message(ImageEditStates.setting_default_steps, F.text)
+async def handle_default_steps(message: Message, state: FSMContext,
+                               user_settings_manager: UserSettingsManager, config: Config):
+    """Обработка установки Steps по умолчанию"""
+    try:
+        steps = int(message.text.strip())
+        
+        if steps < config.workflow.limits.min_steps or steps > config.workflow.limits.max_steps:
+            await message.answer(
+                f"❌ Steps должен быть от {config.workflow.limits.min_steps} до {config.workflow.limits.max_steps}"
+            )
+            return
+        
+        user_settings_manager.update_settings(message.from_user.id, default_steps=steps)
+        logger.info(f"User {message.from_user.id} set default steps: {steps}")
+        
+        await state.clear()
+        settings = user_settings_manager.get_settings(message.from_user.id)
+        
+        await message.answer(
+            f"✅ <b>Steps по умолчанию установлен: {steps}</b>",
+            parse_mode="HTML",
+            reply_markup=create_user_gen_params_keyboard(
+                settings.default_steps,
+                settings.default_cfg,
+                settings.default_seed
+            )
+        )
+        
+    except ValueError:
+        await message.answer("❌ Отправьте целое число")
+
+
+@router.message(ImageEditStates.setting_default_cfg, F.text)
+async def handle_default_cfg(message: Message, state: FSMContext,
+                             user_settings_manager: UserSettingsManager, config: Config):
+    """Обработка установки CFG по умолчанию"""
+    try:
+        cfg = float(message.text.strip().replace(',', '.'))
+        
+        if cfg < config.workflow.limits.min_cfg or cfg > config.workflow.limits.max_cfg:
+            await message.answer(
+                f"❌ CFG должен быть от {config.workflow.limits.min_cfg} до {config.workflow.limits.max_cfg}"
+            )
+            return
+        
+        user_settings_manager.update_settings(message.from_user.id, default_cfg=cfg)
+        logger.info(f"User {message.from_user.id} set default cfg: {cfg}")
+        
+        await state.clear()
+        settings = user_settings_manager.get_settings(message.from_user.id)
+        
+        await message.answer(
+            f"✅ <b>CFG по умолчанию установлен: {cfg:.1f}</b>",
+            parse_mode="HTML",
+            reply_markup=create_user_gen_params_keyboard(
+                settings.default_steps,
+                settings.default_cfg,
+                settings.default_seed
+            )
+        )
+        
+    except ValueError:
+        await message.answer("❌ Отправьте число (например: 1.5)")
+
+
+@router.message(ImageEditStates.setting_default_seed, F.text)
+async def handle_default_seed(message: Message, state: FSMContext,
+                              user_settings_manager: UserSettingsManager):
+    """Обработка установки Seed по умолчанию"""
+    text = message.text.strip().lower()
+    
+    try:
+        if text in ['0', 'random', 'рандом']:
+            seed = 0
+        else:
+            seed = int(text)
+            if seed < 0:
+                await message.answer("❌ Seed должен быть положительным числом или 0 для random")
+                return
+        
+        user_settings_manager.update_settings(message.from_user.id, default_seed=seed)
+        logger.info(f"User {message.from_user.id} set default seed: {seed}")
+        
+        await state.clear()
+        settings = user_settings_manager.get_settings(message.from_user.id)
+        
+        seed_text = "random" if seed == 0 else str(seed)
+        
+        await message.answer(
+            f"✅ <b>Seed по умолчанию установлен: {seed_text}</b>",
+            parse_mode="HTML",
+            reply_markup=create_user_gen_params_keyboard(
+                settings.default_steps,
+                settings.default_cfg,
+                settings.default_seed
+            )
+        )
+        
+    except ValueError:
+        await message.answer("❌ Отправьте целое число или 'random'")
 
 
 # =============================================================================

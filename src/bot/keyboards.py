@@ -121,13 +121,18 @@ def create_skip_keyboard() -> InlineKeyboardMarkup:
     ])
 
 
-def create_user_settings_keyboard(default_prompt: str, auto_confirm: bool) -> InlineKeyboardMarkup:
+def create_user_settings_keyboard(default_prompt: str, auto_confirm: bool,
+                                   default_steps: int = None, default_cfg: float = None,
+                                   default_seed: int = None) -> InlineKeyboardMarkup:
     """
     Клавиатура пользовательских настроек
     
     Args:
         default_prompt: Текущий промпт по умолчанию
         auto_confirm: Состояние автоподтверждения
+        default_steps: Steps по умолчанию (None = из config)
+        default_cfg: CFG по умолчанию (None = из config)
+        default_seed: Seed по умолчанию (None = из config)
         
     Returns:
         InlineKeyboardMarkup с настройками пользователя
@@ -143,6 +148,33 @@ def create_user_settings_keyboard(default_prompt: str, auto_confirm: bool) -> In
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=prompt_text, callback_data="user_set_prompt")],
         [InlineKeyboardButton(text=auto_text, callback_data="user_toggle_auto")],
+        [InlineKeyboardButton(text="⚙️ Параметры генерации", callback_data="user_gen_params")],
         [InlineKeyboardButton(text="ℹ️ Справка", callback_data="user_settings_help")],
         [InlineKeyboardButton(text="◀️ Закрыть", callback_data="user_settings_close")]
+    ])
+
+
+def create_user_gen_params_keyboard(steps: int = None, cfg: float = None,
+                                     seed: int = None) -> InlineKeyboardMarkup:
+    """
+    Клавиатура настройки параметров генерации пользователя
+    
+    Args:
+        steps: Steps по умолчанию (None = из config)
+        cfg: CFG по умолчанию (None = из config)
+        seed: Seed по умолчанию (None = из config)
+        
+    Returns:
+        InlineKeyboardMarkup с параметрами генерации
+    """
+    steps_text = f"Steps: {steps}" if steps is not None else "Steps: по умолчанию"
+    cfg_text = f"CFG: {cfg:.1f}" if cfg is not None else "CFG: по умолчанию"
+    seed_text = f"Seed: {seed}" if seed is not None else "Seed: по умолчанию"
+    
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=f"🔢 {steps_text}", callback_data="user_param_steps")],
+        [InlineKeyboardButton(text=f"⚡ {cfg_text}", callback_data="user_param_cfg")],
+        [InlineKeyboardButton(text=f"🎲 {seed_text}", callback_data="user_param_seed")],
+        [InlineKeyboardButton(text="🔄 Сбросить всё", callback_data="user_param_reset")],
+        [InlineKeyboardButton(text="◀️ Назад", callback_data="user_param_back")]
     ])

@@ -21,5 +21,8 @@ class ImageEditStates(StatesGroup):
     # Подтверждение задачи перед запуском
     confirming = State()
     
-    # Установка промпта по умолчанию
+    # Пользовательские настройки
     setting_default_prompt = State()
+    setting_default_steps = State()
+    setting_default_cfg = State()
+    setting_default_seed = State()
