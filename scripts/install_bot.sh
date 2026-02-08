@@ -1,5 +1,5 @@
 #!/bin/bash
-set -euo pipefail
+set -eo pipefail
 
 BOT_DIR="/opt/image-edit-bot"
 

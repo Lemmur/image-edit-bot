@@ -1,5 +1,5 @@
 #!/bin/bash
-set -euo pipefail
+set -eo pipefail
 
 COMFYUI_DIR="/opt/ComfyUI"
 MODELS_DIR="${COMFYUI_DIR}/models"
