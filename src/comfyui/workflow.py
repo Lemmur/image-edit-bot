@@ -124,12 +124,12 @@ class WorkflowManager:
         extra_pnginfo = {}
         if self.ui_workflow:
             extra_pnginfo["workflow"] = self.ui_workflow
-            logger.debug("✅ extra_pnginfo includes UI workflow")
+            logger.info(f"✅ extra_pnginfo includes UI workflow ({len(self.ui_workflow.get('nodes', []))} nodes)")
         else:
-            logger.warning("⚠️ extra_pnginfo is empty - UI workflow not loaded!")
+            logger.error("❌ extra_pnginfo is EMPTY - UI workflow not loaded! WidgetToString will FAIL!")
         
         logger.success("✅ Workflow created successfully")
-        logger.debug(f"Returning: workflow={len(workflow)} nodes, extra_pnginfo={'with workflow' if self.ui_workflow else 'EMPTY'}")
+        logger.info(f"Returning: workflow={len(workflow)} nodes, extra_pnginfo={'with workflow' if self.ui_workflow else 'EMPTY (ERROR!)'}")
         return workflow, extra_pnginfo
     
     def _set_input_image(self, workflow: Dict, image_name: str) -> None:
