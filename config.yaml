@@ -1,5 +1,5 @@
 workflow:
-  default_file: "workflows/qwen_image_edit.json"
+  default_file: "qwen_image_edit.json"
   
   defaults:
     steps: 8
