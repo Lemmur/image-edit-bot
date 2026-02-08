@@ -3,7 +3,7 @@ from typing import Optional, List, Dict
 from datetime import datetime, timedelta
 from pathlib import Path
 from loguru import logger
-from src.models.task import Task
+from src.models.task import Task, TaskStatus
 
 
 class TaskQueue:
@@ -48,7 +48,7 @@ class TaskQueue:
         """
         task = await self.queue.get()
         async with self._lock:
-            task.status = "processing"
+            task.status = TaskStatus.PROCESSING
             task.started_at = datetime.now()
             self.current_task = task
         logger.info(f"Task {task.id[:8]} started processing")
@@ -67,7 +67,7 @@ class TaskQueue:
         """
         async with self._lock:
             task.completed_at = datetime.now()
-            task.status = "completed" if success else "failed"
+            task.status = TaskStatus.COMPLETED if success else TaskStatus.FAILED
             task.result_path = result_path
             task.error = error
             
@@ -102,7 +102,7 @@ class TaskQueue:
         """Рассчитать процент успешных задач"""
         if not self.completed_tasks:
             return 0.0
-        successful = sum(1 for t in self.completed_tasks if t.status == "completed")
+        successful = sum(1 for t in self.completed_tasks if t.status == TaskStatus.COMPLETED)
         return (successful / len(self.completed_tasks)) * 100
         
     async def clear_old_completed(self, max_age_hours: int = 24):

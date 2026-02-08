@@ -6,7 +6,7 @@ import asyncio
 from pathlib import Path
 from datetime import datetime
 from src.queue.task_queue import TaskQueue
-from src.models.task import Task, WorkflowParams
+from src.models.task import Task, TaskStatus, WorkflowParams
 
 
 @pytest.mark.asyncio
@@ -73,7 +73,7 @@ async def test_task_done_success():
     
     await queue.task_done(retrieved, success=True, result_path=Path("result.png"))
     
-    assert retrieved.status == "completed"
+    assert retrieved.status == TaskStatus.COMPLETED
     assert retrieved.result_path == Path("result.png")
     assert queue.current_task is None
     assert len(queue.completed_tasks) == 1
@@ -95,7 +95,7 @@ async def test_task_done_failure():
     
     await queue.task_done(retrieved, success=False, error="Test error")
     
-    assert retrieved.status == "failed"
+    assert retrieved.status == TaskStatus.FAILED
     assert retrieved.error == "Test error"
     assert queue.current_task is None
 

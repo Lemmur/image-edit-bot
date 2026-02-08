@@ -2,7 +2,15 @@ from dataclasses import dataclass, field
 from typing import Optional
 from pathlib import Path
 from datetime import datetime
+from enum import Enum
 import uuid
+
+class TaskStatus(str, Enum):
+    """Статусы задачи"""
+    PENDING = "pending"
+    PROCESSING = "processing"
+    COMPLETED = "completed"
+    FAILED = "failed"
 
 @dataclass
 class WorkflowParams:
@@ -50,6 +58,6 @@ class Task:
     completed_at: Optional[datetime] = None
     
     # Статус
-    status: str = "pending"  # pending, processing, completed, failed
+    status: TaskStatus = TaskStatus.PENDING
     error: Optional[str] = None
     result_path: Optional[Path] = None
