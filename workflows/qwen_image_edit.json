@@ -64,7 +64,7 @@
   },
   "78": {
     "inputs": {
-      "image": "photo_1_2026-02-08_00-34-34.jpg"
+      "image": "151074759_20260209_061035_AgACAgIA.jpg"
     },
     "class_type": "LoadImage",
     "_meta": {
@@ -299,7 +299,7 @@
       "cfg": 1,
       "sampler_name": "euler",
       "scheduler": "simple",
-      "denoise": 1,
+      "denoise": 0.5,
       "model": [
         "75",
         0
@@ -349,8 +349,8 @@
   },
   "127": {
     "inputs": {
-      "upscale_method": "nearest-exact",
-      "scale_by": 0.7,
+      "upscale_method": "lanczos",
+      "scale_by": 0.5,
       "image": [
         "126",
         0
@@ -391,6 +391,18 @@
     "class_type": "VAEDecode",
     "_meta": {
       "title": "VAE Decode"
+    }
+  },
+  "133": {
+    "inputs": {
+      "images": [
+        "8",
+        0
+      ]
+    },
+    "class_type": "PreviewImage",
+    "_meta": {
+      "title": "Preview Image"
     }
   }
 }
