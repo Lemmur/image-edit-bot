@@ -68,6 +68,11 @@ async def cmd_help(message: Message):
         "⚡ <b>Быстрая генерация:</b>\n"
         "• Фото с подписью → промпт из подписи\n"
         "• Фото без подписи → промпт по умолчанию (настраивается в /settings)\n\n"
+        "📦 <b>Пакетная обработка:</b>\n"
+        "1. /batch — начать пакетную обработку\n"
+        "2. Отправляйте фотографии одно за другим\n"
+        "3. /done — запустить обработку всех фото\n"
+        "Все фото обрабатываются с параметрами по умолчанию\n\n"
         "<b>Полный процесс:</b>\n"
         "1. /new — начать новую задачу\n"
         "2. Отправьте изображение (фото или файл)\n"
@@ -146,6 +151,43 @@ async def cmd_cancel(message: Message, state: FSMContext):
     await message.answer(
         "🚫 <b>Задача отменена</b>\n\n"
         "Используйте /new чтобы начать заново.",
+        parse_mode="HTML"
+    )
+
+
+@router.message(Command("batch"))
+async def cmd_batch(message: Message, state: FSMContext, user_settings_manager: UserSettingsManager):
+    """Команда /batch — начать пакетную обработку"""
+    logger.info(f"User {message.from_user.id} starting batch processing")
+    
+    # Проверить наличие промпта по умолчанию
+    if not user_settings_manager.has_default_prompt(message.from_user.id):
+        await message.answer(
+            "❌ <b>Промпт по умолчанию не установлен</b>\n\n"
+            "Для пакетной обработки необходим промпт по умолчанию.\n\n"
+            "Установите его в /settings → Промпт",
+            parse_mode="HTML"
+        )
+        return
+    
+    # Очистить предыдущее состояние
+    await state.clear()
+    
+    # Инициализировать список изображений
+    await state.update_data(batch_images=[])
+    
+    # Установить состояние пакетной обработки
+    await state.set_state(ImageEditStates.batch_processing)
+    
+    default_prompt = user_settings_manager.get_default_prompt(message.from_user.id)
+    
+    await message.answer(
+        "📦 <b>Пакетная обработка</b>\n\n"
+        "Отправляйте фотографии одно за другим.\n"
+        f"Промпт: <i>\"{default_prompt[:50]}...\"</i>\n\n"
+        "Когда закончите, отправьте /done для запуска обработки.\n"
+        "Для отмены: /cancel\n\n"
+        "💡 <i>Все фото будут обработаны с параметрами по умолчанию</i>",
         parse_mode="HTML"
     )
 
@@ -1213,6 +1255,217 @@ async def handle_default_seed(message: Message, state: FSMContext,
         
     except ValueError:
         await message.answer("❌ Отправьте целое число или 'random'")
+
+
+# =============================================================================
+# Пакетная обработка
+# =============================================================================
+
+@router.message(ImageEditStates.batch_processing, F.photo)
+async def handle_batch_photo(message: Message, state: FSMContext,
+                             file_manager: FileManager, bot: Bot):
+    """Обработка фото в режиме пакетной обработки"""
+    photo = message.photo[-1]
+    
+    logger.info(f"User {message.from_user.id} added photo to batch, file_id: {photo.file_id[:16]}...")
+    
+    try:
+        # Скачать файл
+        file_path = await file_manager.download_file(
+            bot=bot,
+            file_id=photo.file_id,
+            user_id=message.from_user.id,
+            extension="jpg"
+        )
+        
+        # Добавить в список пакетных изображений
+        data = await state.get_data()
+        batch_images = data.get('batch_images', [])
+        batch_images.append(str(file_path))
+        await state.update_data(batch_images=batch_images)
+        
+        count = len(batch_images)
+        
+        await message.answer(
+            f"✅ <b>Фото {count} добавлено</b>\n\n"
+            f"📦 Всего в пакете: {count}\n\n"
+            "Отправляйте ещё фото или /done для запуска обработки",
+            parse_mode="HTML"
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to download photo in batch mode: {e}")
+        await message.answer("❌ Не удалось загрузить изображение. Попробуйте ещё раз.")
+
+
+@router.message(ImageEditStates.batch_processing, F.document)
+async def handle_batch_document(message: Message, state: FSMContext, config: Config,
+                                file_manager: FileManager, bot: Bot):
+    """Обработка документа в режиме пакетной обработки"""
+    document = message.document
+    
+    # Проверить MIME тип
+    allowed_mimes = ["image/jpeg", "image/png", "image/webp"]
+    if document.mime_type not in allowed_mimes:
+        await message.answer(
+            "❌ Неподдерживаемый формат. Отправьте JPG, PNG или WEBP."
+        )
+        return
+    
+    # Проверить размер
+    max_size_bytes = config.image.max_size_mb * 1024 * 1024
+    if document.file_size and document.file_size > max_size_bytes:
+        await message.answer(
+            f"❌ Файл слишком большой (максимум {config.image.max_size_mb} МБ)"
+        )
+        return
+    
+    logger.info(
+        f"User {message.from_user.id} added document to batch: "
+        f"{document.file_name}, {document.mime_type}"
+    )
+    
+    try:
+        # Определить расширение
+        extension = document.mime_type.split("/")[-1]
+        if extension == "jpeg":
+            extension = "jpg"
+        
+        # Скачать файл
+        file_path = await file_manager.download_file(
+            bot=bot,
+            file_id=document.file_id,
+            user_id=message.from_user.id,
+            extension=extension
+        )
+        
+        # Добавить в список пакетных изображений
+        data = await state.get_data()
+        batch_images = data.get('batch_images', [])
+        batch_images.append(str(file_path))
+        await state.update_data(batch_images=batch_images)
+        
+        count = len(batch_images)
+        
+        await message.answer(
+            f"✅ <b>Файл {count} добавлен</b> (оригинальное качество)\n\n"
+            f"📦 Всего в пакете: {count}\n\n"
+            "Отправляйте ещё фото или /done для запуска обработки",
+            parse_mode="HTML"
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to download document in batch mode: {e}")
+        await message.answer("❌ Не удалось загрузить файл. Попробуйте ещё раз.")
+
+
+@router.message(Command("done"))
+async def cmd_done(message: Message, state: FSMContext, config: Config,
+                  user_settings_manager: UserSettingsManager, task_queue: TaskQueue):
+    """Команда /done — завершить пакетную обработку и запустить задачи"""
+    current_state = await state.get_state()
+    
+    if current_state != ImageEditStates.batch_processing:
+        await message.answer("❌ Пакетная обработка не активна. Используйте /batch для начала.")
+        return
+    
+    data = await state.get_data()
+    batch_images = data.get('batch_images', [])
+    
+    if not batch_images:
+        await message.answer("❌ Нет изображений для обработки. Отправьте хотя бы одно фото.")
+        return
+    
+    # Получить настройки пользователя
+    settings = user_settings_manager.get_settings(message.from_user.id)
+    default_prompt = settings.default_prompt
+    
+    logger.info(
+        f"User {message.from_user.id} starting batch processing of {len(batch_images)} images"
+    )
+    
+    # Создать задачи для каждого изображения
+    tasks_created = []
+    
+    for i, image_path in enumerate(batch_images, 1):
+        # Создать WorkflowParams
+        workflow_params = WorkflowParams(
+            input_image=image_path,
+            positive_prompt=default_prompt,
+            negative_prompt=config.workflow.defaults.negative_prompt,
+            steps=settings.default_steps if settings.default_steps is not None else config.workflow.defaults.steps,
+            cfg=settings.default_cfg if settings.default_cfg is not None else config.workflow.defaults.cfg,
+            sampler=config.workflow.defaults.sampler,
+            seed=settings.default_seed if settings.default_seed is not None else config.workflow.defaults.seed,
+            strength=config.workflow.defaults.strength
+        )
+        
+        # Валидация
+        try:
+            workflow_params.validate(config.workflow.limits)
+        except ValueError as e:
+            await message.answer(f"❌ Ошибка валидации для фото {i}: {e}")
+            continue
+        
+        # Создать задачу
+        task = Task(
+            user_id=message.from_user.id,
+            chat_id=message.chat.id,
+            message_id=message.message_id,  # Временный, будет обновлён
+            image_path=Path(image_path),
+            workflow_params=workflow_params
+        )
+        
+        try:
+            # Отправить статусное сообщение для каждой задачи
+            status_message = await message.answer(
+                f"📦 <b>Задача {i}/{len(batch_images)}</b>\n\n"
+                f"🆔 ID: <code>{task.id[:8]}</code>\n"
+                f"📝 Промпт: {default_prompt[:50]}...\n\n"
+                f"⏳ Подготовка...",
+                parse_mode="HTML"
+            )
+            
+            # Обновить task с правильным message_id
+            task.message_id = status_message.message_id
+            
+            # Добавить в очередь
+            position = await task_queue.add_task(task)
+            
+            tasks_created.append((task.id[:8], i, position))
+            
+            # Обновить сообщение с позицией
+            await status_message.edit_text(
+                f"📦 <b>Задача {i}/{len(batch_images)}</b>\n\n"
+                f"🆔 ID: <code>{task.id[:8]}</code>\n"
+                f"📍 Позиция: {position}\n"
+                f"📝 Промпт: {default_prompt[:50]}...\n\n"
+                f"⏳ Ожидайте результат...",
+                parse_mode="HTML"
+            )
+            
+        except Exception as e:
+            logger.error(f"Failed to create batch task {i}: {e}")
+            await message.answer(f"❌ Ошибка при создании задачи {i}: {e}")
+    
+    # Очистить состояние
+    await state.clear()
+    
+    if tasks_created:
+        # Итоговое сообщение
+        await message.answer(
+            f"✅ <b>Пакетная обработка запущена!</b>\n\n"
+            f"📦 Создано задач: {len(tasks_created)}/{len(batch_images)}\n\n"
+            f"⏳ Все задачи в очереди. Ожидайте результаты!",
+            parse_mode="HTML"
+        )
+        
+        logger.info(
+            f"Batch processing completed for user {message.from_user.id}: "
+            f"{len(tasks_created)} tasks created"
+        )
+    else:
+        await message.answer("❌ Не удалось создать ни одной задачи.")
 
 
 # =============================================================================

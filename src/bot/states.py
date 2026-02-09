@@ -26,3 +26,6 @@ class ImageEditStates(StatesGroup):
     setting_default_steps = State()
     setting_default_cfg = State()
     setting_default_seed = State()
+    
+    # Пакетная обработка фотографий
+    batch_processing = State()
