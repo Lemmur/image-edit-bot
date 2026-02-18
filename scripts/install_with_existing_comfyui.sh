@@ -1,6 +1,6 @@
 #!/bin/bash
 # Установка бота с уже установленным ComfyUI
-# Usage: sudo bash scripts/install_with_existing_comfyui.sh /path/to/ComfyUI
+# Usage: sudo bash scripts/install_with_existing_comfyui.sh /path/to/ComfyUI [username]
 
 set -eo pipefail
 
@@ -12,6 +12,7 @@ NC='\033[0m' # No Color
 
 BOT_DIR="/opt/image-edit-bot"
 COMFYUI_DIR="${1:-/opt/ComfyUI}"
+SERVICE_USER="${2:-ubuntu}"  # Пользователь по умолчанию - ubuntu
 
 echo -e "${GREEN}=== Установка Telegram бота с существующим ComfyUI ===${NC}"
 echo ""
@@ -26,7 +27,7 @@ fi
 echo -e "${YELLOW}Проверка ComfyUI...${NC}"
 if [ ! -d "${COMFYUI_DIR}" ]; then
     echo -e "${RED}ComfyUI не найден в ${COMFYUI_DIR}${NC}"
-    echo "Укажите путь: sudo bash $0 /path/to/ComfyUI"
+    echo "Укажите путь: sudo bash $0 /path/to/ComfyUI [username]"
     exit 1
 fi
 
@@ -37,19 +38,11 @@ if [ ! -f "${COMFYUI_DIR}/main.py" ]; then
 fi
 
 echo -e "${GREEN}✓ ComfyUI найден: ${COMFYUI_DIR}${NC}"
+echo -e "${GREEN}✓ Пользователь сервиса: ${SERVICE_USER}${NC}"
 
 # Определение директории скрипта
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "${SCRIPT_DIR}")"
-
-# Создание пользователя
-echo -e "${YELLOW}Создание пользователя comfyui...${NC}"
-if ! id "comfyui" &>/dev/null; then
-    useradd -r -s /bin/false comfyui
-    echo -e "${GREEN}✓ Пользователь comfyui создан${NC}"
-else
-    echo -e "${GREEN}✓ Пользователь comfyui уже существует${NC}"
-fi
 
 # Создание директории бота
 echo -e "${YELLOW}Установка бота в ${BOT_DIR}...${NC}"
@@ -72,7 +65,7 @@ fi
 
 # Установка зависимостей
 echo -e "${YELLOW}Установка Python зависимостей...${NC}"
-sudo -u comfyui bash << 'EOF'
+sudo -u "${SERVICE_USER}" bash << 'EOF'
 source venv/bin/activate
 pip install --upgrade pip -q
 pip install -r requirements.txt -q
@@ -86,7 +79,7 @@ mkdir -p logs
 # Создание .env файла
 if [ ! -f ".env" ]; then
     echo -e "${YELLOW}Создание .env файла...${NC}"
-    cat > .env << EOF
+    cat > .env << ENVEOF
 # Telegram Bot
 TELEGRAM_BOT_TOKEN=your_bot_token_here
 ADMIN_USER_IDS=
@@ -104,14 +97,14 @@ COMFYUI_ARGS=--cuda-device 0
 # Paths
 DATA_DIR=data
 LOGS_DIR=logs
-EOF
+ENVEOF
     echo -e "${GREEN}✓ .env файл создан${NC}"
 else
     echo -e "${GREEN}✓ .env файл уже существует${NC}"
 fi
 
 # Права
-chown -R comfyui:comfyui "${BOT_DIR}"
+chown -R "${SERVICE_USER}:${SERVICE_USER}" "${BOT_DIR}"
 
 # Настройка systemd сервисов
 echo -e "${YELLOW}Настройка systemd сервисов...${NC}"
@@ -124,8 +117,8 @@ After=network.target
 
 [Service]
 Type=simple
-User=comfyui
-Group=comfyui
+User=${SERVICE_USER}
+Group=${SERVICE_USER}
 WorkingDirectory=${COMFYUI_DIR}
 
 ExecStart=${COMFYUI_DIR}/venv/bin/python main.py \\
@@ -160,8 +153,8 @@ Wants=comfyui.service
 
 [Service]
 Type=simple
-User=comfyui
-Group=comfyui
+User=${SERVICE_USER}
+Group=${SERVICE_USER}
 WorkingDirectory=${BOT_DIR}
 
 ExecStart=${BOT_DIR}/venv/bin/python -m src.main
