@@ -1,3 +1,13 @@
+# ComfyUI Settings (override in .env)
+comfyui:
+  host: "127.0.0.1"        # COMFYUI_HOST
+  port: 8188               # COMFYUI_PORT
+  dir: ""                  # COMFYUI_DIR - path to installed ComfyUI
+  venv: ""                 # COMFYUI_VENV - path to venv (optional)
+  auto_start: true         # COMFYUI_AUTO_START - start ComfyUI if not running
+  args: "--cuda-device 0"  # COMFYUI_ARGS - additional launch arguments
+  startup_timeout: 300     # Max seconds to wait for ComfyUI startup
+
 workflow:
   default_file: "qwen_image_edit.json"
   

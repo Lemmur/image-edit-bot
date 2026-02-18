@@ -19,6 +19,7 @@ from src.utils.logger import setup_logger
 from src.bot.handlers import router
 from src.bot.filters import WhitelistFilter, RateLimitFilter
 from src.comfyui.client import ComfyUIClient
+from src.comfyui.launcher import ComfyUILauncher
 from src.comfyui.workflow import WorkflowManager
 from src.queue.task_queue import TaskQueue
 from src.queue.processor import TaskProcessor
@@ -35,6 +36,7 @@ class Application:
         self.bot = None
         self.dp = None
         self.comfyui_client = None
+        self.comfyui_launcher = None
         self.workflow_manager = None
         self.task_queue = None
         self.task_processor = None
@@ -82,23 +84,64 @@ class Application:
             logger.info(f"Whitelist enabled: {len(self.config.admin_user_ids)} users")
             # Whitelist применяется в handlers.py через dependency injection
         
-        # 6. ComfyUI клиент
-        logger.info("Initializing ComfyUI client...")
-        self.comfyui_client = ComfyUIClient(
-            host=self.config.comfyui_host,
-            port=self.config.comfyui_port
-        )
+        # 6. ComfyUI - инициализация и запуск
+        await self._setup_comfyui()
         
-        # Открыть сессию для долгоживущего соединения
+    async def _setup_comfyui(self):
+        """Настройка и запуск ComfyUI"""
+        comfyui_config = self.config.comfyui
+        host = comfyui_config.host
+        port = comfyui_config.port
+        
+        # Инициализация клиента
+        logger.info("Initializing ComfyUI client...")
+        self.comfyui_client = ComfyUIClient(host=host, port=port)
         await self.comfyui_client.connect()
         
-        # Проверка доступности ComfyUI с retry
-        if not await self.comfyui_client.wait_for_ready(max_attempts=60, delay=5):
-            logger.error("ComfyUI is not available after 5 minutes!")
-            await self.comfyui_client.close()
-            raise RuntimeError("ComfyUI connection failed")
+        # Проверяем, запущен ли уже ComfyUI
+        if await self.comfyui_client.check_health():
+            logger.success("✅ ComfyUI is already running")
+            return
         
-        logger.success("ComfyUI is ready")
+        # ComfyUI не запущен - проверяем, нужно ли его запускать
+        if not comfyui_config.auto_start:
+            logger.error("ComfyUI is not running and auto_start is disabled!")
+            await self.comfyui_client.close()
+            raise RuntimeError("ComfyUI is not available")
+        
+        # Проверяем, указан ли путь к ComfyUI
+        if not comfyui_config.dir:
+            logger.error("ComfyUI is not running and COMFYUI_DIR is not set!")
+            logger.error("Please either:")
+            logger.error("  1. Start ComfyUI manually, or")
+            logger.error("  2. Set COMFYUI_DIR in .env to auto-start")
+            await self.comfyui_client.close()
+            raise RuntimeError("ComfyUI path not configured")
+        
+        # Запускаем ComfyUI
+        logger.info(f"ComfyUI not running, starting from {comfyui_config.dir}...")
+        self.comfyui_launcher = ComfyUILauncher(
+            comfyui_dir=comfyui_config.dir,
+            host=host,
+            port=port,
+            venv_path=comfyui_config.venv,
+            extra_args=comfyui_config.args
+        )
+        
+        if not await self.comfyui_launcher.start():
+            logger.error("Failed to start ComfyUI!")
+            await self.comfyui_client.close()
+            raise RuntimeError("Failed to start ComfyUI")
+        
+        # Ожидание готовности ComfyUI
+        max_attempts = comfyui_config.startup_timeout // 5
+        if not await self.comfyui_client.wait_for_ready(max_attempts=max_attempts, delay=5):
+            logger.error(f"ComfyUI failed to start within {comfyui_config.startup_timeout}s!")
+            await self.comfyui_launcher.stop()
+            await self.comfyui_client.close()
+            raise RuntimeError("ComfyUI startup timeout")
+        
+        logger.success("✅ ComfyUI started and ready")
         
         # 7. Workflow manager
         workflow_path = self.config.workflows_dir / self.config.workflow.default_file
@@ -196,12 +239,18 @@ class Application:
                 pass
         logger.info("Cleanup task stopped")
         
-        # 5. Закрыть ComfyUI клиент
+        # 5. Остановить ComfyUI (если запускали)
+        if self.comfyui_launcher:
+            logger.info("Stopping ComfyUI...")
+            await self.comfyui_launcher.stop(timeout=30)
+        logger.info("ComfyUI stopped")
+        
+        # 6. Закрыть ComfyUI клиент
         if self.comfyui_client:
             await self.comfyui_client.close()
         logger.info("ComfyUI client closed")
         
-        # 6. Закрыть bot session
+        # 7. Закрыть bot session
         if self.bot:
             await self.bot.session.close()
         logger.info("Bot session closed")

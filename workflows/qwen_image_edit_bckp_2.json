@@ -64,7 +64,7 @@
   },
   "78": {
     "inputs": {
-      "image": "cluster_00_0969.jpg"
+      "image": "151074759_20260209_061035_AgACAgIA.jpg"
     },
     "class_type": "LoadImage",
     "_meta": {
@@ -116,7 +116,7 @@
       "time_format": "%Y-%m-%d-%H%M%S",
       "show_preview": true,
       "images": [
-        "8",
+        "129",
         0
       ],
       "metadata": [
@@ -136,7 +136,7 @@
       },
       "lora_1": {
         "on": true,
-        "lora": "QWEN/next-scene_lora-v2-3000.safetensors",
+        "lora": "qwen_edit\\next-scene_lora-v2-3000.safetensors",
         "strength": 1
       },
       "➕ Add Lora": "",
@@ -224,7 +224,7 @@
   },
   "118": {
     "inputs": {
-      "ckpt_name": "QWEN/Qwen-Rapid-AIO-NSFW-v23.safetensors"
+      "ckpt_name": "Qwen-Rapid-AIO-NSFW-v11.4.safetensors"
     },
     "class_type": "CheckpointLoaderSimple",
     "_meta": {
@@ -292,18 +292,117 @@
       "title": "ClownsharKSampler"
     }
   },
-  "122": {
+  "124": {
     "inputs": {
-      "purge_cache": true,
-      "purge_models": true,
-      "anything": [
+      "seed": 0,
+      "steps": 4,
+      "cfg": 1,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "denoise": 0.5,
+      "model": [
+        "75",
+        0
+      ],
+      "positive": [
+        "119",
+        0
+      ],
+      "negative": [
+        "77",
+        0
+      ],
+      "latent_image": [
+        "128",
+        0
+      ]
+    },
+    "class_type": "KSampler",
+    "_meta": {
+      "title": "KSampler"
+    }
+  },
+  "125": {
+    "inputs": {
+      "model_name": "4x-UltraSharpV2.safetensors"
+    },
+    "class_type": "UpscaleModelLoader",
+    "_meta": {
+      "title": "Load Upscale Model"
+    }
+  },
+  "126": {
+    "inputs": {
+      "upscale_model": [
+        "125",
+        0
+      ],
+      "image": [
         "8",
         0
       ]
     },
-    "class_type": "PurgeVRAM",
+    "class_type": "ImageUpscaleWithModel",
     "_meta": {
-      "title": "PurgeVRAM"
+      "title": "Upscale Image (using Model)"
+    }
+  },
+  "127": {
+    "inputs": {
+      "upscale_method": "lanczos",
+      "scale_by": 0.5,
+      "image": [
+        "126",
+        0
+      ]
+    },
+    "class_type": "ImageScaleBy",
+    "_meta": {
+      "title": "Upscale Image By"
+    }
+  },
+  "128": {
+    "inputs": {
+      "pixels": [
+        "127",
+        0
+      ],
+      "vae": [
+        "118",
+        2
+      ]
+    },
+    "class_type": "VAEEncode",
+    "_meta": {
+      "title": "VAE Encode"
+    }
+  },
+  "129": {
+    "inputs": {
+      "samples": [
+        "124",
+        0
+      ],
+      "vae": [
+        "118",
+        2
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode"
+    }
+  },
+  "133": {
+    "inputs": {
+      "images": [
+        "8",
+        0
+      ]
+    },
+    "class_type": "PreviewImage",
+    "_meta": {
+      "title": "Preview Image"
     }
   }
 }
